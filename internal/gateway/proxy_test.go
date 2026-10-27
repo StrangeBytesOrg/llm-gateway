@@ -112,6 +112,33 @@ func TestStreamingToolCallsAndFinalUsage(t *testing.T) {
 	}
 }
 
+func TestStreamingResponseSizeLimit(t *testing.T) {
+	stream := "data: {\"id\":\"gen-limit\",\"choices\":[]}\n\ndata: [DONE]\n\n"
+	for _, tc := range []struct {
+		name        string
+		limit       int64
+		wantFailure bool
+	}{{"exact limit", int64(len(stream)), false}, {"over limit", int64(len(stream) - 1), true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			g, key, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.Header().Set("X-Generation-Id", "gen-limit")
+				fmt.Fprint(w, stream)
+			})
+			g.Config.MaxResponseBytes = tc.limit
+			w := call(g.InferenceHandler(), "POST", "/v1/chat/completions", key, `{"model":"alias","messages":[{}],"stream":true}`)
+			req := onlyRequest(t, g)
+			if tc.wantFailure {
+				if !strings.Contains(w.Body.String(), "upstream_response_too_large") || strings.Contains(w.Body.String(), stream) || req.Lifecycle != "failed" || req.Accounting != "pending" || req.GenerationID != "gen-limit" {
+					t.Fatalf("body=%q request=%+v", w.Body.String(), req)
+				}
+			} else if w.Body.String() != stream || req.Lifecycle != "completed" {
+				t.Fatalf("body=%q request=%+v", w.Body.String(), req)
+			}
+		})
+	}
+}
+
 func TestInterruptedStreamReconciliation(t *testing.T) {
 	g, key, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/generation" {

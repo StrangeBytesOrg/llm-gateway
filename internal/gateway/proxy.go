@@ -419,9 +419,21 @@ func (g *Gateway) relayStream(w http.ResponseWriter, r *http.Request, response *
 	}
 	buf := make([]byte, 32<<10)
 	state, code := "completed", ""
+	var received int64
 	for {
-		n, readErr := response.Body.Read(buf)
+		remaining := g.Config.MaxResponseBytes - received
+		readBuf := buf
+		if remaining < int64(len(buf)) {
+			readBuf = buf[:remaining+1]
+		}
+		n, readErr := response.Body.Read(readBuf)
 		if n > 0 {
+			if int64(n) > remaining {
+				state = "failed"
+				code = "upstream_response_too_large"
+				break
+			}
+			received += int64(n)
 			idle.Reset(seconds(g.Config.StreamIdleSeconds))
 			if err := parser.Feed(buf[:n]); err != nil {
 				state = "failed"
@@ -462,7 +474,7 @@ func (g *Gateway) relayStream(w http.ResponseWriter, r *http.Request, response *
 		if !done {
 			data, _ := json.Marshal(map[string]any{"error": map[string]string{"type": "gateway_error", "code": code, "message": strings.ReplaceAll(code, "_", " ")}})
 			_ = controller.SetWriteDeadline(time.Now().Add(time.Second))
-			_, _ = fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", data)
+			_, _ = fmt.Fprintf(w, "\n\ndata: %s\n\ndata: [DONE]\n\n", data)
 			_ = controller.Flush()
 		}
 	}
