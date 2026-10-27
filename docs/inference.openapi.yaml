@@ -1,0 +1,124 @@
+openapi: 3.1.0
+info:
+  title: LLM Gateway Inference API
+  version: 0.1.0
+  description: >-
+    Inference uses virtual keys. The separate Huma-generated administrative API
+    serves its generated specification at /openapi.json and /openapi.yaml on the admin listener.
+servers:
+  - url: http://localhost:8080
+security:
+  - virtualKey: []
+paths:
+  /health/live:
+    get:
+      operationId: liveness
+      security: []
+      responses:
+        "200":
+          description: Process is responding.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, const: ok }
+  /v1/models:
+    get:
+      operationId: listModels
+      responses:
+        "200":
+          description: Configured model aliases in an OpenAI-compatible list.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  object: { type: string, const: list }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        object: { type: string, const: model }
+                        created: { type: integer }
+                        owned_by: { type: string }
+        default: { $ref: "#/components/responses/Error" }
+  /v1/chat/completions:
+    post:
+      operationId: chatCompletions
+      description: >-
+        Compatible Chat Completions request. Tools, structured output and other
+        upstream fields are forwarded. Routing overrides provider/models/route/
+        transforms are rejected. user is replaced with the gateway user ID.
+        n must be 1. Output tokens are capped by server configuration.
+        In-flight and unknown spending may exceed the budget. No automatic retry.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model, messages]
+              properties:
+                model: { type: string, description: Configured alias. }
+                messages:
+                  type: array
+                  minItems: 1
+                  items: { type: object, additionalProperties: true }
+                stream: { type: boolean, default: false }
+                max_tokens: { type: integer, minimum: 1 }
+                max_completion_tokens: { type: integer, minimum: 1 }
+                tools: { type: array, items: { type: object } }
+                response_format: { type: object }
+              additionalProperties: true
+      responses:
+        "200":
+          description: >-
+            Upstream JSON or incrementally relayed SSE. Streams can report errors
+            after HTTP 200; truncated streams receive a gateway error event and
+            DONE when the connection permits. Usage accounting is independent.
+          headers:
+            X-Request-ID:
+              schema: { type: string }
+            Server-Timing:
+              schema: { type: string }
+              description: gateway;dur=ADMISSION_MILLISECONDS
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+            text/event-stream:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Error" }
+        "402":
+          description: budget_exhausted or budget_not_started.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+        default: { $ref: "#/components/responses/Error" }
+components:
+  securitySchemes:
+    virtualKey: { type: http, scheme: bearer }
+  responses:
+    Error:
+      description: Stable gateway error envelope.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [message, type, code]
+          properties:
+            message: { type: string }
+            type: { type: string, const: gateway_error }
+            code: { type: string }
