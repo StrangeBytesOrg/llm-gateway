@@ -27,7 +27,7 @@ func TestInitialSchemaAndReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	provider := Provider{Accounting: "reported", BaseURL: "https://example.invalid/v1", APIKeyEnv: "PROVIDER_KEY"}
-	request, err := s.Admit(ctx, oldSecret, "alias", testRoute(), provider, time.Now())
+	request, err := s.Admit(ctx, oldSecret, "alias", testRoute(), provider, time.Now(), testAccessConfig())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -173,7 +173,7 @@ func (g *Gateway) fail(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrUnauthorized):
 		apiError(w, 401, err.Error())
-	case errors.Is(err, ErrDisabled):
+	case errors.Is(err, ErrDisabled), errors.Is(err, ErrModelNotAllowed):
 		apiError(w, 403, err.Error())
 	case errors.Is(err, ErrBudget), errors.Is(err, ErrNotStarted):
 		apiError(w, 402, err.Error())
@@ -187,13 +187,21 @@ func (g *Gateway) fail(w http.ResponseWriter, err error) {
 	}
 }
 func (g *Gateway) models(w http.ResponseWriter, r *http.Request) {
-	if _, err := g.Store.Authenticate(r.Context(), bearer(r)); err != nil {
+	p, err := g.Store.Authenticate(r.Context(), bearer(r))
+	if err != nil {
+		g.fail(w, err)
+		return
+	}
+	u, err := g.Store.User(r.Context(), p.UserID)
+	if err != nil {
 		g.fail(w, err)
 		return
 	}
 	names := make([]string, 0, len(g.Config.Models))
 	for name := range g.Config.Models {
-		names = append(names, name)
+		if g.Config.AllowsModel(u.ModelAccessGroup, name) {
+			names = append(names, name)
+		}
 	}
 	sort.Strings(names)
 	out := []any{}

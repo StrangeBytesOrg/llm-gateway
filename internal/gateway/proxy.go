@@ -139,7 +139,7 @@ func (g *Gateway) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	route, ok := g.Config.Models[model]
 	if !ok {
-		g.reject(w, 400, "model_not_allowed")
+		g.reject(w, 403, "model_not_allowed")
 		return
 	}
 	for _, field := range []string{"provider", "models", "route", "transforms"} {
@@ -202,7 +202,7 @@ func (g *Gateway) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	admittedAt := time.Now()
-	request, err := g.Store.Admit(r.Context(), secret, model, route, provider, admittedAt)
+	request, err := g.Store.Admit(r.Context(), secret, model, route, provider, admittedAt, g.Config)
 	if err != nil {
 		g.Metrics.Rejected.Add(1)
 		g.fail(w, err)

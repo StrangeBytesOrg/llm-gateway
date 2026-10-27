@@ -25,7 +25,7 @@ func provision(t *testing.T, s *Store, budget string) (User, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	u, err := s.CreateUser(context.Background(), ID("ext_"), n, "monthly", time.Now().UTC().AddDate(0, 0, -1).Truncate(time.Second))
+	u, err := s.CreateUser(context.Background(), ID("ext_"), n, "monthly", time.Now().UTC().AddDate(0, 0, -1).Truncate(time.Second), "free")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestConcurrentSettlementAndOvershoot(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			r, err := s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, time.Now())
+			r, err := s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, time.Now(), testAccessConfig())
 			if err != nil {
 				t.Error(err)
 				return
@@ -76,7 +76,7 @@ func TestConcurrentSettlementAndOvershoot(t *testing.T) {
 	if summary.Current.SpentUSD != "1.600000000" {
 		t.Fatalf("spending: %+v", summary)
 	}
-	if _, err = s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, time.Now()); !errors.Is(err, ErrBudget) {
+	if _, err = s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, time.Now(), testAccessConfig()); !errors.Is(err, ErrBudget) {
 		t.Fatalf("expected exhausted budget: %v", err)
 	}
 	var count int
@@ -89,7 +89,7 @@ func TestLateSettlementAndCorrection(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
 	anchor := stamp("2025-01-31T08:00:00Z")
-	u, err := s.CreateUser(ctx, "late", USDScale, "monthly", anchor)
+	u, err := s.CreateUser(ctx, "late", USDScale, "monthly", anchor, "free")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,11 +97,11 @@ func TestLateSettlementAndCorrection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	before, err := s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, stamp("2025-02-28T07:59:59Z"))
+	before, err := s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, stamp("2025-02-28T07:59:59Z"), testAccessConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
-	after, err := s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, stamp("2025-02-28T08:00:00Z"))
+	after, err := s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, stamp("2025-02-28T08:00:00Z"), testAccessConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,11 +136,11 @@ func TestKeyLifecycleAndBudgetUpdate(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
 	u, key := provision(t, s, "0")
-	if _, err := s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, time.Now()); !errors.Is(err, ErrBudget) {
+	if _, err := s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, time.Now(), testAccessConfig()); !errors.Is(err, ErrBudget) {
 		t.Fatal(err)
 	}
 	amount := USDScale
-	if _, err := s.UpdateUser(ctx, u.ID, nil, &amount); err != nil {
+	if _, err := s.UpdateUser(ctx, u.ID, nil, &amount, nil); err != nil {
 		t.Fatal(err)
 	}
 	p, err := s.Authenticate(ctx, key)
@@ -148,14 +148,14 @@ func TestKeyLifecycleAndBudgetUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	disabled := false
-	if _, err = s.UpdateUser(ctx, u.ID, &disabled, nil); err != nil {
+	if _, err = s.UpdateUser(ctx, u.ID, &disabled, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, time.Now()); !errors.Is(err, ErrDisabled) {
+	if _, err = s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, time.Now(), testAccessConfig()); !errors.Is(err, ErrDisabled) {
 		t.Fatal(err)
 	}
 	enabled := true
-	s.UpdateUser(ctx, u.ID, &enabled, nil)
+	s.UpdateUser(ctx, u.ID, &enabled, nil, nil)
 	if err = s.RevokeKey(ctx, p.KeyID); err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestRecoveryBackupAndDatabaseOwnership(t *testing.T) {
 		t.Fatal("second owner accepted")
 	}
 	u, key := provision(t, s, "10")
-	req, err := s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, time.Now())
+	req, err := s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, time.Now(), testAccessConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestHistoryPagination(t *testing.T) {
 	_, key := provision(t, s, "1")
 	ctx := context.Background()
 	for range 7 {
-		if _, err := s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, time.Now()); err != nil {
+		if _, err := s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, time.Now(), testAccessConfig()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -261,11 +261,11 @@ func TestSettlementOverflowRollsBack(t *testing.T) {
 	s := testStore(t)
 	_, key := provision(t, s, "9223372036.854775807")
 	ctx := context.Background()
-	a, err := s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, time.Now())
+	a, err := s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, time.Now(), testAccessConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, time.Now())
+	b, err := s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, time.Now(), testAccessConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,4 +279,8 @@ func TestSettlementOverflowRollsBack(t *testing.T) {
 	if err != nil || r.Accounting != "pending" {
 		t.Fatalf("partial settlement: %+v %v", r, err)
 	}
+}
+
+func testAccessConfig() Config {
+	return Config{Models: map[string]Route{"alias": testRoute()}, ModelAccessGroups: map[string]ModelAccessGroup{"free": {Models: []string{"alias"}}}, DefaultModelAccessGroup: "free"}
 }

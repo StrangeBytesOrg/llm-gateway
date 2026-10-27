@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -25,26 +27,40 @@ type Route struct {
 	PricingVersion      string `json:"pricing_version,omitempty"`
 }
 
+type ModelAccessGroup struct {
+	Models []string `json:"models"`
+}
+
+var groupIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+
+func (c Config) AllowsModel(group, model string) bool {
+	g, ok := c.ModelAccessGroups[group]
+	_, exists := c.Models[model]
+	return ok && exists && slices.Contains(g.Models, model)
+}
+
 type Config struct {
-	Listen                string              `json:"listen"`
-	AdminListen           string              `json:"admin_listen"`
-	Database              string              `json:"database"`
-	BackupDirectory       string              `json:"backup_directory"`
-	BackupIntervalSeconds int                 `json:"backup_interval_seconds"`
-	AdminTokenEnv         string              `json:"admin_token_env"`
-	Providers             map[string]Provider `json:"providers"`
-	Models                map[string]Route    `json:"models"`
-	MaxBodyBytes          int64               `json:"max_body_bytes"`
-	MaxResponseBytes      int64               `json:"max_response_bytes"`
-	MaxOutputTokens       int                 `json:"max_output_tokens"`
-	GlobalConcurrency     int                 `json:"global_concurrency"`
-	UserConcurrency       int                 `json:"user_concurrency"`
-	UserRequestsPerMinute int                 `json:"user_requests_per_minute"`
-	RequestTimeoutSeconds int                 `json:"request_timeout_seconds"`
-	HeaderTimeoutSeconds  int                 `json:"header_timeout_seconds"`
-	StreamIdleSeconds     int                 `json:"stream_idle_seconds"`
-	ShutdownSeconds       int                 `json:"shutdown_seconds"`
-	ReconcileMaxAttempts  int                 `json:"reconcile_max_attempts"`
+	ModelAccessGroups       map[string]ModelAccessGroup `json:"model_access_groups"`
+	DefaultModelAccessGroup string                      `json:"default_model_access_group"`
+	Listen                  string                      `json:"listen"`
+	AdminListen             string                      `json:"admin_listen"`
+	Database                string                      `json:"database"`
+	BackupDirectory         string                      `json:"backup_directory"`
+	BackupIntervalSeconds   int                         `json:"backup_interval_seconds"`
+	AdminTokenEnv           string                      `json:"admin_token_env"`
+	Providers               map[string]Provider         `json:"providers"`
+	Models                  map[string]Route            `json:"models"`
+	MaxBodyBytes            int64                       `json:"max_body_bytes"`
+	MaxResponseBytes        int64                       `json:"max_response_bytes"`
+	MaxOutputTokens         int                         `json:"max_output_tokens"`
+	GlobalConcurrency       int                         `json:"global_concurrency"`
+	UserConcurrency         int                         `json:"user_concurrency"`
+	UserRequestsPerMinute   int                         `json:"user_requests_per_minute"`
+	RequestTimeoutSeconds   int                         `json:"request_timeout_seconds"`
+	HeaderTimeoutSeconds    int                         `json:"header_timeout_seconds"`
+	StreamIdleSeconds       int                         `json:"stream_idle_seconds"`
+	ShutdownSeconds         int                         `json:"shutdown_seconds"`
+	ReconcileMaxAttempts    int                         `json:"reconcile_max_attempts"`
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -66,6 +82,28 @@ func LoadConfig(path string) (Config, error) {
 }
 
 func (c Config) Validate() error {
+	if _, ok := c.ModelAccessGroups[c.DefaultModelAccessGroup]; !ok {
+		return errors.New("default_model_access_group must reference a defined group")
+	}
+	for name, group := range c.ModelAccessGroups {
+		if !groupIDPattern.MatchString(name) {
+			return fmt.Errorf("invalid model access group %q", name)
+		}
+		if group.Models == nil {
+			return fmt.Errorf("group %s requires a models array (may be empty)", name)
+		}
+		seen := map[string]bool{}
+		for _, model := range group.Models {
+			if _, ok := c.Models[model]; !ok {
+				return fmt.Errorf("group %s references unknown model %q", name, model)
+			}
+			if seen[model] {
+				return fmt.Errorf("group %s repeats model %q", name, model)
+			}
+			seen[model] = true
+		}
+	}
+
 	if c.Listen == "" || c.AdminListen == "" || c.Listen == c.AdminListen || c.Database == "" || c.BackupDirectory == "" {
 		return errors.New("distinct inference/admin listeners, database, and backup directory are required")
 	}

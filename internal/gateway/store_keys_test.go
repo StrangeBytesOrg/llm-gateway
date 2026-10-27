@@ -13,7 +13,7 @@ import (
 
 func keyUser(t *testing.T, s *Store, id string) User {
 	t.Helper()
-	u, err := s.CreateUser(context.Background(), id, 10*USDScale, "monthly", time.Now().AddDate(0, 0, -1))
+	u, err := s.CreateUser(context.Background(), id, 10*USDScale, "monthly", time.Now().AddDate(0, 0, -1), "free")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestKeyAliasRotationPreservesAccounting(t *testing.T) {
 	if _, err = s.db.Exec("UPDATE virtual_keys SET created=? WHERE id=?", old.Created, old.ID); err != nil {
 		t.Fatal(err)
 	}
-	request, err := s.Admit(ctx, oldSecret, "alias", testRoute(), Provider{Accounting: "reported"}, time.Now())
+	request, err := s.Admit(ctx, oldSecret, "alias", testRoute(), Provider{Accounting: "reported"}, time.Now(), testAccessConfig())
 	if err != nil {
 		t.Fatal(err)
 	}

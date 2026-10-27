@@ -122,7 +122,7 @@ func TestSQLiteFullRollsBackCharge(t *testing.T) {
 	s := testStore(t)
 	u, key := provision(t, s, "10")
 	ctx := context.Background()
-	r, err := s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, time.Now())
+	r, err := s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, time.Now(), testAccessConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestExternalWriterContention(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if _, err = s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, time.Now()); err == nil {
+	if _, err = s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, time.Now(), testAccessConfig()); err == nil {
 		t.Fatal("admitted while accounting writes were blocked")
 	}
 	var n int
@@ -221,7 +221,7 @@ func TestCrashHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, key := provision(t, s, "1")
-	r, err := s.Admit(context.Background(), key, "alias", testRoute(), Provider{Accounting: "openrouter"}, time.Now())
+	r, err := s.Admit(context.Background(), key, "alias", testRoute(), Provider{Accounting: "openrouter"}, time.Now(), testAccessConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +304,7 @@ func TestReconcilePersistedUsageAndProviderSnapshot(t *testing.T) {
 	ctx := context.Background()
 	provider := g.Config.Providers["upstream"]
 	provider.Accounting = "reported"
-	req, err := g.Store.Admit(ctx, key, "alias", testRoute(), provider, time.Now())
+	req, err := g.Store.Admit(ctx, key, "alias", testRoute(), provider, time.Now(), testAccessConfig())
 	if err != nil {
 		t.Fatal(err)
 	}

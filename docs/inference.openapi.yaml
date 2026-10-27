@@ -28,7 +28,7 @@ paths:
       operationId: listModels
       responses:
         "200":
-          description: Configured model aliases in an OpenAI-compatible list.
+          description: Model aliases permitted by the authenticated user's current access group, independent of budget exhaustion.
           content:
             application/json:
               schema:
@@ -54,6 +54,9 @@ paths:
         transforms are rejected. user is replaced with the gateway user ID.
         n must be 1. Output tokens are capped by server configuration.
         In-flight and unknown spending may exceed the budget. No automatic retry.
+        Model access is checked against the user's current group at admission;
+        unknown or inaccessible aliases return 403 model_not_allowed.
+        Already admitted requests may finish after a group change.
       requestBody:
         required: true
         content:

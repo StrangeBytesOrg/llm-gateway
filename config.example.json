@@ -18,6 +18,10 @@
       "model": "openai/gpt-4o-mini"
     }
   },
+  "model_access_groups": {
+    "free": { "models": ["default"] }
+  },
+  "default_model_access_group": "free",
   "max_body_bytes": 4194304,
   "max_response_bytes": 16777216,
   "max_output_tokens": 4096,

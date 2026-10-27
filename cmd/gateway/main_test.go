@@ -36,6 +36,8 @@ func TestExecutableLifecycle(t *testing.T) {
 	path := filepath.Join(dir, "gateway.db")
 	configPath := filepath.Join(dir, "config.json")
 	config := map[string]any{"listen": inference, "admin_listen": admin, "database": path, "backup_directory": filepath.Join(dir, "backups"), "providers": map[string]any{"openrouter": map[string]string{"base_url": "https://example.invalid/api/v1", "api_key_env": "OPENROUTER_API_KEY", "accounting": "openrouter"}}, "models": map[string]any{"default": map[string]string{"provider": "openrouter", "model": "test"}}}
+	config["model_access_groups"] = map[string]any{"free": map[string]any{"models": []string{"default"}}}
+	config["default_model_access_group"] = "free"
 	data, err := json.Marshal(config)
 	if err != nil {
 		t.Fatal(err)

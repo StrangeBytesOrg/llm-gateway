@@ -62,7 +62,10 @@ func run() error {
 	}
 	defer store.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	err = store.Recover(ctx)
+	err = store.ValidateUserGroups(ctx, c)
+	if err == nil {
+		err = store.Recover(ctx)
+	}
 	cancel()
 	if err != nil {
 		return fmt.Errorf("restart recovery: %w", err)

@@ -73,7 +73,7 @@ func TestAdminKeyAliasWorkflow(t *testing.T) {
 		t.Fatalf("created metadata: %+v", first.Key)
 	}
 	// Requests admitted under the old credential must settle after rotation.
-	request, err := g.Store.Admit(context.Background(), first.Secret, "alias", testRoute(), g.Config.Providers["upstream"], time.Now())
+	request, err := g.Store.Admit(context.Background(), first.Secret, "alias", testRoute(), g.Config.Providers["upstream"], time.Now(), testAccessConfig())
 	if err != nil {
 		t.Fatal(err)
 	}

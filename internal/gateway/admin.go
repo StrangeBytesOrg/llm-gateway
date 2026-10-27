@@ -50,19 +50,40 @@ type RequestPageInput struct {
 	RequestInput
 	Pagination
 }
+
+// optionalGroup distinguishes omission from explicit null.
+type optionalGroup struct {
+	Value string
+	Set   bool
+}
+
+func (v *optionalGroup) UnmarshalJSON(data []byte) error {
+	v.Set = true
+	if string(data) == "null" {
+		return errors.New("model_access_group cannot be null")
+	}
+	return json.Unmarshal(data, &v.Value)
+}
+func (optionalGroup) Schema(huma.Registry) *huma.Schema {
+	minLength, maxLength := 1, 64
+	return &huma.Schema{Type: "string", MinLength: &minLength, MaxLength: &maxLength, Pattern: groupIDPattern.String()}
+}
+
 type CreateUserInput struct {
 	Body struct {
-		ID        *string   `json:"id,omitempty" minLength:"1" maxLength:"256" doc:"Optional immutable user ID. Omit to generate one; supplied IDs are used exactly. Duplicate IDs return 409."`
-		BudgetUSD string    `json:"budget_usd" minLength:"1" maxLength:"100" doc:"Nonnegative USD, rounded to nano-USD. Zero blocks inference."`
-		Cadence   string    `json:"cadence" enum:"weekly,monthly"`
-		Anchor    time.Time `json:"anchor" doc:"Renewal anchor, normalized to UTC and truncated to whole seconds. Cadence and anchor are immutable."`
+		ModelAccessGroup optionalGroup `json:"model_access_group,omitempty" doc:"Model access group. Omit to store the configured creation default."`
+		ID               *string       `json:"id,omitempty" minLength:"1" maxLength:"256" doc:"Optional immutable user ID. Omit to generate one; supplied IDs are used exactly. Duplicate IDs return 409."`
+		BudgetUSD        string        `json:"budget_usd" minLength:"1" maxLength:"100" doc:"Nonnegative USD, rounded to nano-USD. Zero blocks inference."`
+		Cadence          string        `json:"cadence" enum:"weekly,monthly"`
+		Anchor           time.Time     `json:"anchor" doc:"Renewal anchor, normalized to UTC and truncated to whole seconds. Cadence and anchor are immutable."`
 	}
 }
 type UpdateUserInput struct {
 	UserInput
 	Body struct {
-		Enabled   *bool   `json:"enabled,omitempty"`
-		BudgetUSD *string `json:"budget_usd,omitempty" minLength:"1" maxLength:"100" doc:"Applies immediately, including to the current period."`
+		ModelAccessGroup optionalGroup `json:"model_access_group,omitempty" doc:"Replaces the user group immediately for all keys. Omit to preserve the current assignment."`
+		Enabled          *bool         `json:"enabled,omitempty"`
+		BudgetUSD        *string       `json:"budget_usd,omitempty" minLength:"1" maxLength:"100" doc:"Applies immediately, including to the current period."`
 	}
 }
 type CreateKeyInput struct {
@@ -184,6 +205,8 @@ func (g *Gateway) adminError(err error) error {
 		return huma.NewError(404, "not_found")
 	case errors.Is(err, ErrConflict):
 		return huma.NewError(409, "conflict")
+	case errors.Is(err, ErrInvalidGroup):
+		return huma.NewError(400, "invalid_model_access_group")
 	case errors.Is(err, ErrInvalidUserID):
 		return huma.NewError(400, "invalid_user_id")
 	case errors.Is(err, ErrInvalidKeyAlias):
@@ -207,7 +230,14 @@ func (g *Gateway) createUser(ctx context.Context, in *CreateUserInput) (*APIOutp
 			return nil, huma.NewError(400, "invalid_user_id")
 		}
 	}
-	u, err := g.Store.CreateUser(ctx, id, amount, in.Body.Cadence, a)
+	group := g.Config.DefaultModelAccessGroup
+	if in.Body.ModelAccessGroup.Set {
+		group = in.Body.ModelAccessGroup.Value
+	}
+	if _, ok := g.Config.ModelAccessGroups[group]; !ok {
+		return nil, huma.NewError(400, "invalid_model_access_group")
+	}
+	u, err := g.Store.CreateUser(ctx, id, amount, in.Body.Cadence, a, group)
 	if err != nil {
 		return nil, g.adminError(err)
 	}
@@ -236,10 +266,18 @@ func (g *Gateway) updateUser(ctx context.Context, in *UpdateUserInput) (*APIOutp
 		}
 		budget = &n
 	}
-	if in.Body.Enabled == nil && budget == nil {
+	var group *string
+	if in.Body.ModelAccessGroup.Set {
+		value := in.Body.ModelAccessGroup.Value
+		if _, ok := g.Config.ModelAccessGroups[value]; !ok {
+			return nil, huma.NewError(400, "invalid_model_access_group")
+		}
+		group = &value
+	}
+	if in.Body.Enabled == nil && budget == nil && group == nil {
 		return nil, huma.NewError(400, "empty_update")
 	}
-	u, err := g.Store.UpdateUser(ctx, in.UserID, in.Body.Enabled, budget)
+	u, err := g.Store.UpdateUser(ctx, in.UserID, in.Body.Enabled, budget, group)
 	if err != nil {
 		return nil, g.adminError(err)
 	}
@@ -411,7 +449,7 @@ func (g *Gateway) ready(ctx context.Context, in *struct{}) (*APIOutput[StatusRes
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	if err := g.Store.Ping(ctx); err != nil {
+	if err := g.Store.ValidateUserGroups(ctx, g.Config); err != nil {
 		return nil, g.adminError(err)
 	}
 	return output(StatusResult{Status: "ready"}), nil

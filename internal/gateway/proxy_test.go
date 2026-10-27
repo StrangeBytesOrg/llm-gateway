@@ -23,7 +23,7 @@ func fixture(t *testing.T, upstream http.HandlerFunc) (*Gateway, string, string)
 	admin := strings.Repeat("a", 40)
 	t.Setenv("TEST_ADMIN_TOKEN", admin)
 	t.Setenv("TEST_PROVIDER_KEY", "provider-secret")
-	c := Config{Listen: ":8080", AdminListen: "127.0.0.1:8081", Database: filepath.Join(t.TempDir(), "gateway.db"), BackupDirectory: t.TempDir(), BackupIntervalSeconds: 86400, AdminTokenEnv: "TEST_ADMIN_TOKEN", Providers: map[string]Provider{"upstream": {BaseURL: up.URL, APIKeyEnv: "TEST_PROVIDER_KEY", Accounting: "openrouter"}}, Models: map[string]Route{"alias": testRoute()}, MaxBodyBytes: 1 << 20, MaxResponseBytes: 1 << 20, MaxOutputTokens: 100, GlobalConcurrency: 100, UserConcurrency: 4, UserRequestsPerMinute: 60, RequestTimeoutSeconds: 5, HeaderTimeoutSeconds: 2, StreamIdleSeconds: 1, ShutdownSeconds: 2, ReconcileMaxAttempts: 2}
+	c := Config{ModelAccessGroups: testAccessConfig().ModelAccessGroups, DefaultModelAccessGroup: "free", Listen: ":8080", AdminListen: "127.0.0.1:8081", Database: filepath.Join(t.TempDir(), "gateway.db"), BackupDirectory: t.TempDir(), BackupIntervalSeconds: 86400, AdminTokenEnv: "TEST_ADMIN_TOKEN", Providers: map[string]Provider{"upstream": {BaseURL: up.URL, APIKeyEnv: "TEST_PROVIDER_KEY", Accounting: "openrouter"}}, Models: map[string]Route{"alias": testRoute()}, MaxBodyBytes: 1 << 20, MaxResponseBytes: 1 << 20, MaxOutputTokens: 100, GlobalConcurrency: 100, UserConcurrency: 4, UserRequestsPerMinute: 60, RequestTimeoutSeconds: 5, HeaderTimeoutSeconds: 2, StreamIdleSeconds: 1, ShutdownSeconds: 2, ReconcileMaxAttempts: 2}
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +236,7 @@ func TestAuthenticationAndValidation(t *testing.T) {
 		key, body string
 		status    int
 	}{
-		{"", `{}`, 401}, {admin, `{}`, 401}, {key, `{"model":"unknown","messages":[{}]}`, 400}, {key, `{"model":"alias","messages":[{}],"provider":{}}`, 400}, {key, `{"model":"alias","messages":[{}],"max_tokens":101}`, 400}, {key, `{"model":"alias","messages":[{}],"stream":null}`, 400}, {key, `{"model":"alias","messages":[]}`, 400}, {key, `null`, 400}, {key, `{"model":"alias","messages":[{}]} {}`, 400},
+		{"", `{}`, 401}, {admin, `{}`, 401}, {key, `{"model":"unknown","messages":[{}]}`, 403}, {key, `{"model":"alias","messages":[{}],"provider":{}}`, 400}, {key, `{"model":"alias","messages":[{}],"max_tokens":101}`, 400}, {key, `{"model":"alias","messages":[{}],"stream":null}`, 400}, {key, `{"model":"alias","messages":[]}`, 400}, {key, `null`, 400}, {key, `{"model":"alias","messages":[{}]} {}`, 400},
 	} {
 		if w := call(g.InferenceHandler(), "POST", "/v1/chat/completions", tc.key, tc.body); w.Code != tc.status {
 			t.Errorf("%s: %d %s", tc.body, w.Code, w.Body)

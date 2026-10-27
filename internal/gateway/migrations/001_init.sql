@@ -1,7 +1,8 @@
 CREATE TABLE users (
  id TEXT NOT NULL PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
  budget INTEGER NOT NULL CHECK(budget>=0), cadence TEXT NOT NULL CHECK(cadence IN ('weekly','monthly')),
- anchor INTEGER NOT NULL, created INTEGER NOT NULL
+ anchor INTEGER NOT NULL, created INTEGER NOT NULL,
+ model_access_group TEXT NOT NULL CHECK(length(model_access_group)>0)
 );
 CREATE TABLE virtual_keys (
  id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), hash TEXT NOT NULL UNIQUE,
@@ -20,7 +21,7 @@ CREATE TABLE periods (
 );
 CREATE TABLE requests (
  id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), key_id TEXT NOT NULL REFERENCES virtual_keys(id),
- model TEXT NOT NULL, provider TEXT NOT NULL, upstream_model TEXT NOT NULL, route TEXT NOT NULL,
+ model_access_group TEXT NOT NULL, model TEXT NOT NULL, provider TEXT NOT NULL, upstream_model TEXT NOT NULL, route TEXT NOT NULL,
  provider_config TEXT NOT NULL DEFAULT '{}',
  generation_id TEXT NOT NULL DEFAULT '', created INTEGER NOT NULL, period_start INTEGER NOT NULL,
  lifecycle TEXT NOT NULL DEFAULT 'admitted', accounting TEXT NOT NULL DEFAULT 'pending',

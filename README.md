@@ -41,6 +41,40 @@ Save `secret` from this response; it cannot be retrieved later. Supply it as the
 
 Users have a single immutable `id`. Supply it during creation to use your own IDs, or omit it to let the gateway generate a `usr_` ID. Lookup, updates, usage, key management, and stored relationships all use that same ID. User routes use `/admin/v1/users/{user_id}`; URL-encode user IDs and key aliases individually as path segments. Supplied IDs are matched exactly and case-sensitively, must be nonblank and at most 256 bytes, and cannot be changed after creation.
 
+## Model access groups
+
+Define `model_access_groups` alongside `models`. Each group lists gateway model aliases, independently of the upstream providers behind those aliases:
+
+```json
+{
+  "model_access_groups": {
+    "free": { "models": ["fast"] },
+    "basic": { "models": ["fast", "advanced"] },
+    "premium": { "models": ["fast", "advanced", "flagship"] },
+    "none": { "models": [] }
+  },
+  "default_model_access_group": "free"
+}
+```
+
+Every listed alias must exist in `models`. Group IDs are case-sensitive lowercase slugs, and containing up to 64 letters, digits, or hyphens. Unknown aliases, duplicate aliases within a group, missing model arrays, invalid group IDs, and undefined defaults fail configuration validation. Lists are explicit: there is no inheritance, wildcard, or implicit access when a new model route is added. An empty array grants no model access. The `default` model alias, if configured, needs explicit inclusion like any other alias.
+
+Set `model_access_group` when creating a user, or omit it to store the configured default. Changing `default_model_access_group` affects future users only. Update a user's group and budget together through the existing user endpoint:
+
+```sh
+curl --fail --silent --show-error -X PATCH \
+  http://127.0.0.1:8081/admin/v1/users/your-internal-user-id \
+  -H "Authorization: Bearer $GATEWAY_ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"model_access_group":"premium","budget_usd":"100.00"}'
+```
+
+The group must be defined in configuration. Empty, null, and unknown assignments are rejected; omitting the field on updates preserves the current assignment. User responses include `model_access_group`. Subscription integrations choose the user's group and budget independently; the gateway does not map billing plans.
+
+All existing keys use the user's current assignment. Group and budget changes commit atomically. Admission checks access within the same transaction as authentication and budget enforcement. Requests admitted after a downgrade commits use the new assignment; already admitted requests may finish and settle. Unknown or inaccessible aliases return `403 model_not_allowed` without an upstream call or accounting request. `GET /v1/models` lists only the user's permitted aliases, independently of budget exhaustion.
+
+Group definitions and routes require a restart to change; user assignments take effect immediately. Startup and readiness validate stored assignments against configured groups, so users must be reassigned before removing or renaming a group. Missing groups never grant fallback access. Assignment changes are audited with the previous and resulting group; each admitted request stores its admission-time group. Retain versioned configuration to reconstruct historical group membership.
+
 ## Key aliases
 
 A **key alias** is the caller-supplied string stored in a key's `alias`, unique within its user. A user can have multiple aliases, and different users can reuse the same alias. Each alias identifies one key whose secret can be rotated. The rotate endpoint creates a missing key or atomically revokes its previous credential and activates a replacement. It returns `200` with `{ "key": { ...metadata }, "secret": "..." }` only after commit. Failed rotations preserve the previous credential. A retry after a lost response rotates again and returns a fresh secret; under concurrent rotations only the last committed credential remains valid, so an earlier response can already be superseded when it arrives.
@@ -100,7 +134,7 @@ List APIs accept `limit` (1–500, default 100) and `after`; follow `next_cursor
 - A UTC anchor defines renewal boundaries. Weekly means seven days. Monthly preserves the original date/time, clamping to month-end without drifting: January 31 → February 28 → March 31. Fractional seconds in anchors are truncated. Requests before the anchor are rejected.
 - Periods include their start and exclude their end. Charge a request to its admission period, including late settlements. Renewal is calculated on admission; it does not depend on a reset scheduler. Unused budget does not roll over.
 - Admission checks settled spending. There are no fund reservations: concurrent or unresolved requests can exceed the budget. Once known spending reaches the limit, new requests receive 402. Limits default to four active calls and 60 requests/minute per user, with 100 globally active inference requests.
-- Budget amount changes take effect immediately. Anchor and cadence cannot be changed in v1. A zero budget blocks inference. No key-specific budgets or model permissions are implemented; every enabled user can access every configured alias.
+- Budget amount changes take effect immediately. Anchor and cadence cannot be changed in v1. A zero budget blocks inference. Budgets and model access are assigned to users; all their keys share the current policy.
 - OpenRouter `usage.cost` is authoritative; interrupted requests are reconciled through `/generation` when a generation ID was captured. Persisted usage can also recover a failed settlement without another upstream call. Provider endpoints, credential environment-variable references, accounting modes, and configured token rates are snapshotted at admission. Keep referenced credentials available until pending requests are resolved. Cancellation does not guarantee that provider billing stops.
 - Cost uses integer nano-USD (nine decimal places), rounded once to nearest with ties up. API amounts are decimal strings; original reported cost and usage metadata are retained. Very small charges below half a nano-dollar round to zero.
 - Inference lifecycle and accounting status are independent. Accounting is `pending`, `settled`, or `unresolved`. Automatic settlement is idempotent. Manual resolution specifies a replacement **total** and reason; the ledger receives only the difference and the audit log records the action.
