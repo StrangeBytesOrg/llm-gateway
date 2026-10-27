@@ -311,6 +311,9 @@ func (g *Gateway) chat(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 502, "upstream_error")
 		return
 	}
+	if deadline, ok := r.Context().Deadline(); ok {
+		_ = http.NewResponseController(w).SetWriteDeadline(deadline)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
 	_, _ = w.Write(data)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,6 +17,53 @@ import (
 	"testing"
 	"time"
 )
+
+func TestNonStreamingSlowClientReleasesConcurrency(t *testing.T) {
+	response := `{"id":"gen-slow","choices":[{"message":{"content":"` + strings.Repeat("x", 8<<20) + `"}}],"usage":{"cost":0.1}}`
+	g, key, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, response)
+	})
+	g.Config.MaxResponseBytes = int64(len(response))
+	g.Config.RequestTimeoutSeconds = 1
+	g.Config.GlobalConcurrency = 1
+	g.Config.UserConcurrency = 1
+	server := httptest.NewServer(g.InferenceHandler())
+	defer server.Close()
+	conn, err := net.Dial("tcp", server.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := conn.(*net.TCPConn).SetReadBuffer(1024); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"model":"alias","messages":[{}]}`
+	_, err = fmt.Fprintf(conn, "POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer %s\r\nContent-Length: %d\r\n\r\n%s", key, len(body), body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for g.Metrics.Active.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if g.Metrics.Active.Load() == 0 {
+		t.Fatal("request did not become active")
+	}
+	for g.Metrics.Active.Load() != 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if g.Metrics.Active.Load() != 0 {
+		t.Fatal("stalled client retained its concurrency slot")
+	}
+	if r := onlyRequest(t, g); r.Lifecycle != "completed" || r.Accounting != "settled" {
+		t.Fatalf("upstream response was not settled: %+v", r)
+	}
+	w := call(g.InferenceHandler(), "POST", "/v1/chat/completions", key, body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("next request: %d %s", w.Code, w.Body.String())
+	}
+}
 
 func TestClientDisconnectCancelsUpstream(t *testing.T) {
 	upstreamCancelled := make(chan struct{})
