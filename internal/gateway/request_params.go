@@ -9,18 +9,18 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// OpenRouterSettings holds operator-enforced upstream request fields. Values
+// RequestParams holds operator-enforced upstream request fields. Values
 // stay as JSON so forwarding and persisted route snapshots preserve numbers.
-type OpenRouterSettings map[string]json.RawMessage
+type RequestParams map[string]json.RawMessage
 
-var openRouterReservedFields = []string{
+var requestReservedFields = []string{
 	"model", "models", "route", "messages", "prompt", "user", "stream",
 	"stream_options", "n", "max_tokens", "max_completion_tokens",
 }
 
-func (s OpenRouterSettings) Validate() error {
+func (s RequestParams) Validate() error {
 	for field, value := range s {
-		if slices.Contains(openRouterReservedFields, field) {
+		if slices.Contains(requestReservedFields, field) {
 			return fmt.Errorf("field %q is controlled by the gateway", field)
 		}
 		if !json.Valid(value) {
@@ -30,25 +30,25 @@ func (s OpenRouterSettings) Validate() error {
 	return nil
 }
 
-func (s *OpenRouterSettings) UnmarshalYAML(node *yaml.Node) error {
+func (s *RequestParams) UnmarshalYAML(node *yaml.Node) error {
 	// Retain the YAML decoder's alias expansion limits before traversing nodes.
 	var decoded any
 	if err := node.Decode(&decoded); err != nil {
 		return err
 	}
-	value, err := openRouterJSONValue(node, map[*yaml.Node]bool{})
+	value, err := requestJSONValue(node, map[*yaml.Node]bool{})
 	if err != nil {
 		return err
 	}
 	object, ok := value.(map[string]any)
 	if !ok {
-		return errors.New("openrouter must be an object")
+		return errors.New("request settings must be an object")
 	}
-	settings := OpenRouterSettings{}
+	settings := RequestParams{}
 	for field, value := range object {
 		encoded, err := json.Marshal(value)
 		if err != nil {
-			return fmt.Errorf("openrouter field %q: %w", field, err)
+			return fmt.Errorf("request settings field %q: %w", field, err)
 		}
 		settings[field] = encoded
 	}
@@ -59,15 +59,15 @@ func (s *OpenRouterSettings) UnmarshalYAML(node *yaml.Node) error {
 // Convert explicitly instead of decoding into interface{}: YAML permits
 // non-string keys, timestamps, custom tags, and recursive aliases that JSON does
 // not. Duplicate keys must also be rejected inside flexible extension objects.
-func openRouterJSONValue(node *yaml.Node, visiting map[*yaml.Node]bool) (any, error) {
+func requestJSONValue(node *yaml.Node, visiting map[*yaml.Node]bool) (any, error) {
 	if node == nil || visiting[node] {
-		return nil, errors.New("openrouter contains a recursive YAML alias")
+		return nil, errors.New("request settings contains a recursive YAML alias")
 	}
 	visiting[node] = true
 	defer delete(visiting, node)
 	switch node.Kind {
 	case yaml.AliasNode:
-		return openRouterJSONValue(node.Alias, visiting)
+		return requestJSONValue(node.Alias, visiting)
 	case yaml.MappingNode:
 		if node.Tag != "!!map" {
 			break
@@ -76,14 +76,14 @@ func openRouterJSONValue(node *yaml.Node, visiting map[*yaml.Node]bool) (any, er
 		for i := 0; i < len(node.Content); i += 2 {
 			key := node.Content[i]
 			if key.Kind != yaml.ScalarNode || key.Tag != "!!str" {
-				return nil, errors.New("openrouter object keys must be strings")
+				return nil, errors.New("request settings object keys must be strings")
 			}
 			if _, exists := object[key.Value]; exists {
-				return nil, fmt.Errorf("openrouter key %q already defined", key.Value)
+				return nil, fmt.Errorf("request settings key %q already defined", key.Value)
 			}
-			value, err := openRouterJSONValue(node.Content[i+1], visiting)
+			value, err := requestJSONValue(node.Content[i+1], visiting)
 			if err != nil {
-				return nil, fmt.Errorf("openrouter field %q: %w", key.Value, err)
+				return nil, fmt.Errorf("request settings field %q: %w", key.Value, err)
 			}
 			object[key.Value] = value
 		}
@@ -94,7 +94,7 @@ func openRouterJSONValue(node *yaml.Node, visiting map[*yaml.Node]bool) (any, er
 		}
 		array := make([]any, 0, len(node.Content))
 		for _, item := range node.Content {
-			value, err := openRouterJSONValue(item, visiting)
+			value, err := requestJSONValue(item, visiting)
 			if err != nil {
 				return nil, err
 			}
@@ -109,15 +109,15 @@ func openRouterJSONValue(node *yaml.Node, visiting map[*yaml.Node]bool) (any, er
 				return nil, err
 			}
 			if _, err := json.Marshal(value); err != nil {
-				return nil, fmt.Errorf("openrouter value is not JSON-compatible: %w", err)
+				return nil, fmt.Errorf("request settings value is not JSON-compatible: %w", err)
 			}
 			return value, nil
 		}
 	}
-	return nil, fmt.Errorf("openrouter value with YAML tag %q is not JSON-compatible", node.Tag)
+	return nil, fmt.Errorf("request settings value with YAML tag %q is not JSON-compatible", node.Tag)
 }
 
-func validateOpenRouterNodes(document *yaml.Node) error {
+func validateRequestParamsNodes(document *yaml.Node) error {
 	// Decode each level into nodes so YAML aliases and merge keys have the same
 	// behavior as the normal configuration decoder. Leave invalid outer shapes
 	// to that decoder so its existing error messages remain intact.
@@ -138,13 +138,13 @@ func validateOpenRouterNodes(document *yaml.Node) error {
 		if err := route.Decode(&fields); err != nil {
 			continue
 		}
-		settings, exists := fields["openrouter"]
+		settings, exists := fields["request_params"]
 		if !exists {
 			continue
 		}
-		var parsed OpenRouterSettings
+		var parsed RequestParams
 		if err := parsed.UnmarshalYAML(&settings); err != nil {
-			return fmt.Errorf("model %s openrouter: %w", name, err)
+			return fmt.Errorf("model %s request_params: %w", name, err)
 		}
 	}
 	return nil

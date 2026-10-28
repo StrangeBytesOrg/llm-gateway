@@ -18,8 +18,8 @@ models:
   default:
     provider: openrouter
     model: openai/gpt-4o-mini
-    # Optional OpenRouter request settings, enforced over client values.
-    # openrouter:
+    # Optional upstream request settings, enforced over client values.
+    # request_params:
     #   provider:
     #     only: [openai]
     #     allow_fallbacks: false

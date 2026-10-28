@@ -1,6 +1,6 @@
 # LLM Gateway
 
-A Go gateway for internal inference access, virtual keys, recurring user budgets, and request cost accounting. OpenRouter is the first supported upstream. State lives in local SQLite; run one gateway process per database on Linux. The admin API uses Huma over Go's standard router; inference streams use direct `net/http` handlers.
+A Go gateway for internal inference access, virtual keys, recurring user budgets, and request cost accounting. Connects to OpenRouter and configurable OpenAI-compatible Chat Completions upstreams. State lives in local SQLite; run one gateway process per database on Linux. The admin API uses Huma over Go's standard router; inference streams use direct `net/http` handlers.
 
 ## Run locally
 
@@ -14,11 +14,11 @@ go run ./cmd/gateway -config config.yaml -check
 go run ./cmd/gateway -config config.yaml
 ```
 
-Configuration uses YAML, with defaults applied to omitted optional settings. See the [configuration reference](docs/configuration.md) for every setting, whether it is required, and its default. Unknown fields (except inside model `openrouter` settings), duplicate keys, multiple documents, and files larger than 1 MiB are rejected. A [configuration schema](config.schema.json) is available for editor autocomplete and validation. Use `-check` to validate configuration, references, and credentials. Keep token pricing values quoted, such as `input_usd_per_million: "0.15"`.
+Configuration uses YAML, with defaults applied to omitted optional settings. See the [configuration reference](docs/configuration.md) for every setting, whether it is required, and its default. Unknown fields (except inside model `request_params` settings), duplicate keys, multiple documents, and files larger than 1 MiB are rejected. A [configuration schema](config.schema.json) is available for editor autocomplete and validation. Use `-check` to validate configuration, references, and credentials. Keep token pricing values quoted, such as `input_usd_per_million: "0.15"`.
 
 Inference listens on port 8080; administration binds to loopback port 8081. Put inference behind a TLS reverse proxy before exposing it. Both APIs use bearer authentication; only `/health/live` is public. Do not expose the admin listener to untrusted networks. Credentials are resolved from environment variables at startup/request time, never stored in SQLite. Cors is enabled by default on the inference API.
 
-Configure aliases in `models`; clients send the alias as `model`. Each alias maps to one provider model. Configuration changes require a restart. The example model is illustrative: confirm availability and any model-specific parameters with your provider before use. The gateway forwards Chat Completions fields, including tools and structured output, while controlling routing, upstream credentials, user identity, and maximum output tokens. Upstream model names are preserved in responses. Optional `models.<alias>.openrouter` settings enforce OpenRouter request fields such as provider preferences, reasoning, plugins, and sampling parameters. Configured top-level fields replace client values completely. See the [OpenRouter settings reference](docs/configuration.md#openrouter-settings-modelsaliasopenrouter) for reserved fields and examples.
+Configure aliases in `models`; clients send the alias as `model`. Each alias maps to one provider model. Configuration changes require a restart. The example model is illustrative: confirm availability and any model-specific parameters with your provider before use. The gateway forwards Chat Completions fields, including tools and structured output, while controlling routing, upstream credentials, user identity, and maximum output tokens. Upstream model names are preserved in responses. Optional `models.<alias>.request_params` settings enforce upstream request fields such as reasoning and sampling parameters. OpenRouter provider preferences and plugins use the same `request_params` object. Configured top-level fields replace client values completely. See the [OpenRouter request parameters reference](docs/configuration.md#openrouter-request-parameters) for reserved fields and examples.
 
 ## Provision a user and key
 
@@ -138,6 +138,8 @@ List APIs accept `limit` (1–500, default 100) and `after`; follow `next_cursor
 - Cost uses integer nano-USD (nine decimal places), rounded once to nearest with ties up. API amounts are decimal strings; original reported cost and usage metadata are retained. Very small charges below half a nano-dollar round to zero.
 - Inference lifecycle and accounting status are independent. Accounting is `pending`, `settled`, or `unresolved`. Automatic settlement is idempotent. Manual resolution specifies a replacement **total** and reason; the ledger receives only the difference and the audit log records the action.
 - Reconciliation retries with exponential backoff, capped at one hour; after 12 failed attempts a record becomes unresolved. Requests with no recoverable generation ID also eventually become unresolved. Operators resolve these using provider records. Users continue against known spending while costs remain unknown.
+
+Generic connections use a configured HTTPS base URL and bearer API key; no separate provider adapter is required. See the [generic connection examples](docs/configuration.md#generic-connections-and-request-settings-modelsaliasrequest_params) for Together AI, Fireworks AI, and DeepInfra. These are configuration targets awaiting live verification; local tests verify the shared connector.
 
 Compatible providers can use `accounting: reported` when they return a trustworthy `usage.cost` in USD. `accounting: token_rates` requires `input_usd_per_million`, `output_usd_per_million`, and `pricing_version` on each model route. That mode only supports flat text token pricing; nonzero cache/audio/other detail dimensions remain unresolved instead of being silently mispriced. Rates are snapshotted per request. Test a provider's streaming, token and cost semantics before enabling it. Cloudflare has not yet passed that conformance testing.
 

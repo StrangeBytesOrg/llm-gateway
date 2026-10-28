@@ -214,9 +214,9 @@
           "type": "string",
           "description": "Pricing version snapshotted for accounting; required for token_rates."
         },
-        "openrouter": {
+        "request_params": {
           "type": "object",
-          "description": "Operator-enforced OpenRouter request settings. Configured fields replace client fields completely. Unknown upstream options are accepted; gateway-controlled fields are forbidden.",
+          "description": "Operator-enforced upstream request fields. Each top-level field replaces the client value completely. Unknown upstream options are accepted; gateway-controlled fields are forbidden.",
           "additionalProperties": true,
           "properties": {
             "model": false,

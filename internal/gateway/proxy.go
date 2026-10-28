@@ -193,7 +193,7 @@ func (g *Gateway) chat(w http.ResponseWriter, r *http.Request) {
 		options["include_usage"] = json.RawMessage("true")
 		payload["stream_options"], _ = json.Marshal(options)
 	}
-	for field, value := range route.OpenRouter {
+	for field, value := range route.RequestParams {
 		payload[field] = value
 	}
 	body, err := json.Marshal(payload)

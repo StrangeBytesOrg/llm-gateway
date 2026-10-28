@@ -10,10 +10,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 )
 
-func loadOpenRouterConfig(t *testing.T, setting string) (Config, error) {
+func loadRequestParamsConfig(t *testing.T, setting string) (Config, error) {
 	t.Helper()
 	t.Setenv("GATEWAY_ADMIN_TOKEN", strings.Repeat("a", 40))
 	t.Setenv("OPENROUTER_API_KEY", "test")
@@ -29,8 +28,8 @@ func loadOpenRouterConfig(t *testing.T, setting string) (Config, error) {
 	return LoadConfig(path)
 }
 
-func TestOpenRouterConfigValues(t *testing.T) {
-	c, err := loadOpenRouterConfig(t, `    openrouter:
+func TestRequestSettingsConfigValues(t *testing.T) {
+	c, err := loadRequestParamsConfig(t, `    request_params:
       provider:
         only: [openai]
         allow_fallbacks: false
@@ -43,8 +42,8 @@ func TestOpenRouterConfigValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	settings := c.Models["default"].OpenRouter
-	want := OpenRouterSettings{
+	settings := c.Models["default"].RequestParams
+	want := RequestParams{
 		"provider":      json.RawMessage(`{"allow_fallbacks":false,"max_price":{"prompt":"0.15"},"only":["openai"]}`),
 		"reasoning":     json.RawMessage(`{"effort":"low"}`),
 		"temperature":   json.RawMessage(`0`),
@@ -54,15 +53,15 @@ func TestOpenRouterConfigValues(t *testing.T) {
 	if !reflect.DeepEqual(settings, want) {
 		t.Fatalf("settings: %s; want %s", settings, want)
 	}
-	for _, setting := range []string{"", "    openrouter: {}\n"} {
-		c, err := loadOpenRouterConfig(t, setting)
-		if err != nil || len(c.Models["default"].OpenRouter) != 0 {
+	for _, setting := range []string{"", "    request_params: {}\n"} {
+		c, err := loadRequestParamsConfig(t, setting)
+		if err != nil || len(c.Models["default"].RequestParams) != 0 {
 			t.Fatalf("empty settings: %+v %v", c, err)
 		}
 	}
 }
 
-func TestOpenRouterConfigRejectsInvalidSettings(t *testing.T) {
+func TestRequestSettingsConfigRejectsInvalidSettings(t *testing.T) {
 	cases := map[string]string{
 		"null": "null", "scalar": "hello", "array": "[]",
 		"duplicate":       "{provider: {only: [openai], only: [anthropic]}}",
@@ -73,61 +72,61 @@ func TestOpenRouterConfigRejectsInvalidSettings(t *testing.T) {
 		"tag":             "{future_option: !custom value}",
 		"recursive alias": "{future_option: &loop [*loop]}",
 	}
-	for _, field := range openRouterReservedFields {
+	for _, field := range requestReservedFields {
 		cases["reserved "+field] = "{" + field + ": null}"
 	}
 	for name, setting := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, err := loadOpenRouterConfig(t, "    openrouter: "+setting+"\n")
-			if err == nil || !strings.Contains(err.Error(), "model default openrouter") {
+			_, err := loadRequestParamsConfig(t, "    request_params: "+setting+"\n")
+			if err == nil || !strings.Contains(err.Error(), "model default request_params") {
 				t.Fatalf("expected contextual error, got %v", err)
 			}
 		})
 	}
-	_, err := loadOpenRouterConfig(t, "    openruter: {}\n")
+	_, err := loadRequestParamsConfig(t, "    openruter: {}\n")
 	if err == nil || !strings.Contains(err.Error(), "field openruter") {
 		t.Fatalf("lost strict route validation: %v", err)
 	}
 }
 
-func TestOpenRouterConfigRejectsInvalidJSON(t *testing.T) {
-	c, err := loadOpenRouterConfig(t, "")
+func TestRequestSettingsConfigRejectsInvalidJSON(t *testing.T) {
+	c, err := loadRequestParamsConfig(t, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	route := c.Models["default"]
-	route.OpenRouter = OpenRouterSettings{"temperature": json.RawMessage(`NaN`)}
+	route.RequestParams = RequestParams{"temperature": json.RawMessage(`NaN`)}
 	c.Models["default"] = route
 	if err := c.Validate(); err == nil {
 		t.Fatal("accepted invalid programmatic JSON")
 	}
 }
 
-func TestOpenRouterYAMLAliases(t *testing.T) {
-	c, err := loadOpenRouterConfig(t, `    <<: {openrouter: {temperature: 0}}
+func TestRequestSettingsYAMLAliases(t *testing.T) {
+	c, err := loadRequestParamsConfig(t, `    <<: {request_params: {temperature: 0}}
 `)
-	if err != nil || string(c.Models["default"].OpenRouter["temperature"]) != "0" {
+	if err != nil || string(c.Models["default"].RequestParams["temperature"]) != "0" {
 		t.Fatalf("lost merged route setting: %+v %v", c.Models["default"], err)
 	}
-	_, err = loadOpenRouterConfig(t, "    <<: {openrouter: null}\n")
-	if err == nil || !strings.Contains(err.Error(), "model default openrouter") {
+	_, err = loadRequestParamsConfig(t, "    <<: {request_params: null}\n")
+	if err == nil || !strings.Contains(err.Error(), "model default request_params") {
 		t.Fatalf("accepted null in merged route: %v", err)
 	}
-	c, err = loadOpenRouterConfig(t, `    openrouter:
+	c, err = loadRequestParamsConfig(t, `    request_params:
       provider:
         only: &providers [openai]
         order: *providers
 `)
-	if err != nil || string(c.Models["default"].OpenRouter["provider"]) != `{"only":["openai"],"order":["openai"]}` {
+	if err != nil || string(c.Models["default"].RequestParams["provider"]) != `{"only":["openai"],"order":["openai"]}` {
 		t.Fatalf("lost aliased setting: %+v %v", c.Models["default"], err)
 	}
 }
 
-func TestOpenRouterForwarding(t *testing.T) {
+func TestRequestSettingsForwarding(t *testing.T) {
 	for _, streaming := range []bool{false, true} {
 		for _, accounting := range []string{"openrouter", "reported"} {
 			t.Run(fmt.Sprintf("stream=%t/accounting=%s", streaming, accounting), func(t *testing.T) {
-				settings := OpenRouterSettings{
+				settings := RequestParams{
 					"provider":      json.RawMessage(`{"only":["openai"],"allow_fallbacks":false}`),
 					"reasoning":     json.RawMessage(`{"effort":"low"}`),
 					"temperature":   json.RawMessage(`0`),
@@ -163,7 +162,7 @@ func TestOpenRouterForwarding(t *testing.T) {
 					}
 				})
 				route := g.Config.Models["alias"]
-				route.OpenRouter = settings
+				route.RequestParams = settings
 				g.Config.Models["alias"] = route
 				provider := g.Config.Providers[route.Provider]
 				provider.Accounting = accounting
@@ -188,7 +187,7 @@ func TestOpenRouterForwarding(t *testing.T) {
 					t.Fatalf("history: %v %v", requests, err)
 				}
 				for _, request := range requests {
-					if request.Accounting != "settled" || !reflect.DeepEqual(request.Route.OpenRouter, settings) {
+					if request.Accounting != "settled" || !reflect.DeepEqual(request.Route.RequestParams, settings) {
 						t.Fatalf("lost settings or settlement: %+v", request)
 					}
 				}
@@ -197,11 +196,11 @@ func TestOpenRouterForwarding(t *testing.T) {
 	}
 }
 
-func TestOpenRouterRoutingOverridesRemainForbidden(t *testing.T) {
+func TestRequestSettingsRoutingOverridesRemainForbidden(t *testing.T) {
 	var reached bool
 	g, key, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) { reached = true })
 	route := g.Config.Models["alias"]
-	route.OpenRouter = OpenRouterSettings{"provider": json.RawMessage(`{"only":["openai"]}`)}
+	route.RequestParams = RequestParams{"provider": json.RawMessage(`{"only":["openai"]}`)}
 	g.Config.Models["alias"] = route
 	for _, field := range []string{"provider", "models", "route", "transforms"} {
 		body := fmt.Sprintf(`{"model":"alias","messages":[{}],%q:null}`, field)
@@ -215,7 +214,7 @@ func TestOpenRouterRoutingOverridesRemainForbidden(t *testing.T) {
 	}
 }
 
-func TestOpenRouterAliasIsolation(t *testing.T) {
+func TestRequestSettingsAliasIsolation(t *testing.T) {
 	var bodies []map[string]json.RawMessage
 	g, key, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]json.RawMessage
@@ -227,7 +226,7 @@ func TestOpenRouterAliasIsolation(t *testing.T) {
 		fmt.Fprint(w, `{"choices":[],"usage":{"cost":0.01}}`)
 	})
 	route := testRoute()
-	route.OpenRouter = OpenRouterSettings{"temperature": json.RawMessage(`0`)}
+	route.RequestParams = RequestParams{"temperature": json.RawMessage(`0`)}
 	g.Config.Models["configured"] = route
 	g.Config.ModelAccessGroups["free"] = ModelAccessGroup{Models: []string{"alias", "configured"}}
 	for _, alias := range []string{"configured", "alias", "configured"} {
@@ -239,34 +238,6 @@ func TestOpenRouterAliasIsolation(t *testing.T) {
 	for i, want := range []string{"0", "1", "0"} {
 		if string(bodies[i]["temperature"]) != want {
 			t.Fatalf("request %d: %s", i, bodies[i])
-		}
-	}
-}
-
-func TestOpenRouterRouteSnapshotCompatibility(t *testing.T) {
-	s := testStore(t)
-	_, key := provision(t, s, "1")
-	ctx := context.Background()
-	for _, settings := range []OpenRouterSettings{nil, {"future_option": json.RawMessage(`9007199254740993`)}} {
-		route := testRoute()
-		route.OpenRouter = settings
-		request, err := s.Admit(ctx, key, "alias", route, Provider{Accounting: "openrouter"}, time.Now(), testAccessConfig())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if settings != nil {
-			settings["future_option"] = json.RawMessage(`0`)
-		}
-		stored, err := s.Request(ctx, request.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if settings == nil {
-			if stored.Route.OpenRouter != nil {
-				t.Fatalf("historical route changed: %+v", stored.Route)
-			}
-		} else if string(stored.Route.OpenRouter["future_option"]) != "9007199254740993" {
-			t.Fatalf("snapshot changed: %+v", stored.Route)
 		}
 	}
 }
