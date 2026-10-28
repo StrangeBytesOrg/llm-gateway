@@ -65,7 +65,7 @@ default_model_access_group: free
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Listen != ":8080" || c.MaxBodyBytes != 4<<20 || c.UserConcurrency != 4 || c.RequestTimeoutSeconds != 300 {
+	if c.Listen != ":8080" || c.MaxBodyBytes != 4<<20 || c.MaxOutputTokens != 0 || c.UserConcurrency != 4 || c.RequestTimeoutSeconds != 300 {
 		t.Fatalf("defaults were not preserved: %+v", c)
 	}
 	if c.Models["test.model"].InputUSDPerMillion != "0.123456789123" || c.Models["test.model"].OutputUSDPerMillion != "2.50" {
@@ -115,5 +115,45 @@ func TestConfigRejectsUnusableAdminToken(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "test")
 	if _, err := LoadConfig("../../config.example.yaml"); err == nil {
 		t.Fatal("accepted an admin token containing spaces that cannot be used as a bearer credential")
+	}
+}
+
+func TestConfigOutputTokenLimits(t *testing.T) {
+	t.Setenv("GATEWAY_ADMIN_TOKEN", strings.Repeat("a", 40))
+	t.Setenv("OPENROUTER_API_KEY", "test")
+	data, err := os.ReadFile("../../config.example.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, setting string
+		want          int
+		wantError     bool
+	}{
+		{"omitted", "", 0, false},
+		{"zero", "max_output_tokens: 0\n", 0, false},
+		{"positive", "max_output_tokens: 32768\n", 32768, false},
+		{"negative", "max_output_tokens: -1\n", 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			content := strings.Replace(string(data), "max_output_tokens: 0\n", tc.setting, 1)
+			if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+				t.Fatal(err)
+			}
+			c, err := LoadConfig(path)
+			if tc.wantError {
+				if err == nil {
+					t.Fatal("accepted negative output cap")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.MaxOutputTokens != tc.want {
+				t.Fatalf("got %d, want %d", c.MaxOutputTokens, tc.want)
+			}
+		})
 	}
 }

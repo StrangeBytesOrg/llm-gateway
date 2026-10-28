@@ -56,9 +56,9 @@
     },
     "max_output_tokens": {
       "type": "integer",
-      "description": "Maximum output tokens allowed per inference request.",
-      "minimum": 1,
-      "default": 4096
+      "description": "Maximum output tokens allowed per inference request. Zero disables the gateway cap and leaves omitted request limits unset; positive values are inserted as max_tokens when no request limit is supplied.",
+      "minimum": 0,
+      "default": 0
     },
     "global_concurrency": {
       "type": "integer",

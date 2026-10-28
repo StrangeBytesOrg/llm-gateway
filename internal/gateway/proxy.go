@@ -157,19 +157,19 @@ func (g *Gateway) chat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Enforce the output cap regardless of which Chat Completions spelling is used.
+	// Validate client limits and enforce any configured cap for both spellings.
 	hasLimit := false
 	for _, field := range []string{"max_tokens", "max_completion_tokens"} {
 		if b, exists := payload[field]; exists {
 			var n int
-			if json.Unmarshal(b, &n) != nil || n < 1 || n > g.Config.MaxOutputTokens {
+			if json.Unmarshal(b, &n) != nil || n < 1 || (g.Config.MaxOutputTokens > 0 && n > g.Config.MaxOutputTokens) {
 				g.reject(w, 400, "invalid_output_limit")
 				return
 			}
 			hasLimit = true
 		}
 	}
-	if !hasLimit {
+	if !hasLimit && g.Config.MaxOutputTokens > 0 {
 		payload["max_tokens"] = json.RawMessage(strconv.Itoa(g.Config.MaxOutputTokens))
 	}
 	if n, exists := payload["n"]; exists && string(n) != "1" {

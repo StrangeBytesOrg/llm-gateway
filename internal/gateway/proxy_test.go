@@ -358,3 +358,61 @@ func FuzzUsage(f *testing.F) {
 	f.Add([]byte(`{"cost":1e99999999}`))
 	f.Fuzz(func(t *testing.T, data []byte) { _, _, _ = costFromUsage(data, "openrouter", Route{}) })
 }
+
+func TestChatOutputTokenLimits(t *testing.T) {
+	for _, cap := range []int{0, 100} {
+		t.Run(fmt.Sprintf("cap_%d", cap), func(t *testing.T) {
+			cases := []struct {
+				name, fields string
+				status       int
+			}{{"omitted", "", http.StatusOK}}
+			for _, field := range []string{"max_tokens", "max_completion_tokens"} {
+				for _, value := range []string{"1", "100", "32768", "0", "-1", "null", "1.5", `"100"`} {
+					status := http.StatusBadRequest
+					if value == "1" || value == "100" || (cap == 0 && value == "32768") {
+						status = http.StatusOK
+					}
+					cases = append(cases, struct {
+						name, fields string
+						status       int
+					}{
+						field + "_" + value, fmt.Sprintf(`,"%s":%s`, field, value), status,
+					})
+				}
+			}
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					var forwarded atomic.Bool
+					g, key, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+						forwarded.Store(true)
+						var body map[string]json.RawMessage
+						if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+							t.Error(err)
+						}
+						var want map[string]json.RawMessage
+						if err := json.Unmarshal([]byte(`{`+strings.TrimPrefix(tc.fields, ",")+`}`), &want); err != nil {
+							t.Fatal(err)
+						}
+						if tc.fields == "" && cap > 0 {
+							want["max_tokens"] = json.RawMessage(fmt.Sprint(cap))
+						}
+						for _, field := range []string{"max_tokens", "max_completion_tokens"} {
+							if string(body[field]) != string(want[field]) {
+								t.Errorf("%s: got %s, want %s", field, body[field], want[field])
+							}
+						}
+						fmt.Fprint(w, `{"id":"gen-limit","choices":[],"usage":{"cost":0}}`)
+					})
+					g.Config.MaxOutputTokens = cap
+					w := call(g.InferenceHandler(), "POST", "/v1/chat/completions", key, `{"model":"alias","messages":[{}]`+tc.fields+`}`)
+					if w.Code != tc.status {
+						t.Fatalf("got %d, want %d: %s", w.Code, tc.status, w.Body)
+					}
+					if forwarded.Load() != (tc.status == http.StatusOK) {
+						t.Fatalf("unexpected forwarding: %v", forwarded.Load())
+					}
+				})
+			}
+		})
+	}
+}

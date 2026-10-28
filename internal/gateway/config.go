@@ -71,7 +71,7 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, err
 	}
 	defer f.Close()
-	c := Config{Listen: ":8080", AdminListen: "127.0.0.1:8081", Database: "data/gateway.db", BackupDirectory: "data/backups", BackupIntervalSeconds: 86400, AdminTokenEnv: "GATEWAY_ADMIN_TOKEN", MaxBodyBytes: 4 << 20, MaxResponseBytes: 16 << 20, MaxOutputTokens: 4096, GlobalConcurrency: 100, UserConcurrency: 4, UserRequestsPerMinute: 60, RequestTimeoutSeconds: 300, HeaderTimeoutSeconds: 60, StreamIdleSeconds: 60, ShutdownSeconds: 30, ReconcileMaxAttempts: 12}
+	c := Config{Listen: ":8080", AdminListen: "127.0.0.1:8081", Database: "data/gateway.db", BackupDirectory: "data/backups", BackupIntervalSeconds: 86400, AdminTokenEnv: "GATEWAY_ADMIN_TOKEN", MaxBodyBytes: 4 << 20, MaxResponseBytes: 16 << 20, GlobalConcurrency: 100, UserConcurrency: 4, UserRequestsPerMinute: 60, RequestTimeoutSeconds: 300, HeaderTimeoutSeconds: 60, StreamIdleSeconds: 60, ShutdownSeconds: 30, ReconcileMaxAttempts: 12}
 	const maxConfigBytes = 1 << 20
 	data, err := io.ReadAll(io.LimitReader(f, maxConfigBytes+1))
 	if err != nil {
@@ -124,7 +124,7 @@ func (c Config) Validate() error {
 	if len(c.Providers) == 0 || len(c.Models) == 0 {
 		return errors.New("providers and models are required")
 	}
-	if c.MaxBodyBytes <= 0 || c.MaxBodyBytes > 64<<20 || c.MaxResponseBytes <= 0 || c.MaxResponseBytes > 64<<20 || c.MaxOutputTokens <= 0 || c.GlobalConcurrency <= 0 || c.UserConcurrency <= 0 || c.UserRequestsPerMinute <= 0 {
+	if c.MaxBodyBytes <= 0 || c.MaxBodyBytes > 64<<20 || c.MaxResponseBytes <= 0 || c.MaxResponseBytes > 64<<20 || c.MaxOutputTokens < 0 || c.GlobalConcurrency <= 0 || c.UserConcurrency <= 0 || c.UserRequestsPerMinute <= 0 {
 		return errors.New("invalid size, token, concurrency, or rate limit")
 	}
 	for _, v := range []int{c.RequestTimeoutSeconds, c.HeaderTimeoutSeconds, c.StreamIdleSeconds, c.ShutdownSeconds, c.ReconcileMaxAttempts, c.BackupIntervalSeconds} {
