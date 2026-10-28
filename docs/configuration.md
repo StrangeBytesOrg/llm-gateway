@@ -17,7 +17,7 @@ opening the database or contacting providers. It does not check whether credenti
 work, upstream models exist, or listener addresses can bind. Normal startup also
 validates that stored users reference defined model access groups.
 
-Unknown fields, duplicate keys, multiple YAML documents, and files larger than
+Unknown fields (except inside `models.<alias>.openrouter`), duplicate keys, multiple YAML documents, and files larger than
 1 MiB are rejected. Defaults apply to omitted optional settings; explicitly
 setting a number to zero fails validation except for `max_output_tokens`, where
 zero explicitly disables the gateway output cap.
@@ -76,6 +76,7 @@ upstream model identifier. The alias `default` has no implicit route or access g
 | `input_usd_per_million` | string | For `token_rates` | None (unused in other modes) | USD price per million input tokens. Use a quoted nonnegative decimal string, such as `"0.15"`; `"0"` explicitly sets a zero rate. |
 | `output_usd_per_million` | string | For `token_rates` | None (unused in other modes) | USD price per million output tokens. Same format as the input rate. |
 | `pricing_version` | string | For `token_rates` | None (unused in other modes) | Nonempty operator-chosen pricing version, snapshotted with each request for accounting. |
+| `openrouter` | object | No | None | OpenRouter request fields enforced over client values. See below. |
 
 Token rates must pass the gateway's USD parser: at most 100 characters, no sign or
 whitespace, digits before any decimal point, and digits after it if present.
@@ -83,6 +84,56 @@ Scientific notation is accepted with a one- or two-digit exponent between `-30`
 and `30`, for example `"1.5e-1"`. Values must fit the supported signed 64-bit
 nano-USD range after rounding. Amounts round to nine decimal places, nearest with
 ties up. A missing rate is not treated as zero.
+
+### OpenRouter settings: `models.<alias>.openrouter`
+
+Use OpenRouter request field names directly. The route's `provider` selects a
+configured gateway upstream; `openrouter.provider` selects providers within
+OpenRouter. For example:
+
+```yaml
+models:
+  default:
+    provider: openrouter
+    model: openai/gpt-4o-mini
+    openrouter:
+      provider:
+        only: [openai]
+        allow_fallbacks: false
+        require_parameters: true
+      reasoning:
+        effort: low
+      temperature: 0.2
+```
+
+The object supports [provider routing preferences](https://openrouter.ai/docs/guides/routing/provider-selection),
+[reasoning and sampling parameters](https://openrouter.ai/docs/api/reference/parameters),
+plugins, transforms, and future OpenRouter request options. Unknown setting names
+are accepted here; OpenRouter validates their meaning and model compatibility.
+All other configuration objects retain strict unknown-field validation.
+
+Each configured top-level field replaces the corresponding client field in full.
+For example, configured `reasoning` replaces the entire client `reasoning` object;
+its nested fields are not merged. Unconfigured client fields keep their existing
+behavior. Clients still cannot supply `provider`, `models`, `route`, or `transforms`,
+even when these settings are configured by an operator.
+
+Gateway-controlled fields are forbidden inside `openrouter`: `model`, `models`,
+`route`, `messages`, `prompt`, `user`, `stream`, `stream_options`, `n`, `max_tokens`,
+and `max_completion_tokens`. Use the existing route model and global
+`max_output_tokens` setting for routing and output limits. Cross-model fallback
+is not supported; provider fallback within OpenRouter can be configured.
+
+When present, `openrouter` must be an object; `{}` has no effect. Nested JSON
+values, including explicit `false`, `0`, and `null`, are preserved. Duplicate keys,
+non-string object keys, recursive aliases, non-finite numbers, and non-JSON YAML
+tags are rejected. Quote date-like strings to avoid YAML timestamp interpretation.
+Settings are included in the persisted route snapshot for each admitted request.
+
+These are request-body options, not custom HTTP headers. They are sent to the
+route's configured upstream regardless of its name, hostname, or accounting mode;
+configure them only for upstreams that support them. Omitting the object preserves
+existing behavior. Configuration changes require a restart.
 
 ### Group fields: `model_access_groups.<group>`
 

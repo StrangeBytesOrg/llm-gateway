@@ -193,6 +193,9 @@ func (g *Gateway) chat(w http.ResponseWriter, r *http.Request) {
 		options["include_usage"] = json.RawMessage("true")
 		payload["stream_options"], _ = json.Marshal(options)
 	}
+	for field, value := range route.OpenRouter {
+		payload[field] = value
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		g.reject(w, 400, "invalid_request")

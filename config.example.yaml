@@ -18,6 +18,15 @@ models:
   default:
     provider: openrouter
     model: openai/gpt-4o-mini
+    # Optional OpenRouter request settings, enforced over client values.
+    # openrouter:
+    #   provider:
+    #     only: [openai]
+    #     allow_fallbacks: false
+    #     require_parameters: true
+    #   reasoning:
+    #     effort: low
+    #   temperature: 0.2
 
 # Groups list gateway aliases, not upstream model names.
 model_access_groups:

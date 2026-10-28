@@ -22,11 +22,12 @@ type Provider struct {
 }
 
 type Route struct {
-	Provider            string `json:"provider" yaml:"provider"`
-	Model               string `json:"model" yaml:"model"`
-	InputUSDPerMillion  string `json:"input_usd_per_million,omitempty" yaml:"input_usd_per_million,omitempty"`
-	OutputUSDPerMillion string `json:"output_usd_per_million,omitempty" yaml:"output_usd_per_million,omitempty"`
-	PricingVersion      string `json:"pricing_version,omitempty" yaml:"pricing_version,omitempty"`
+	Provider            string             `json:"provider" yaml:"provider"`
+	Model               string             `json:"model" yaml:"model"`
+	InputUSDPerMillion  string             `json:"input_usd_per_million,omitempty" yaml:"input_usd_per_million,omitempty"`
+	OutputUSDPerMillion string             `json:"output_usd_per_million,omitempty" yaml:"output_usd_per_million,omitempty"`
+	PricingVersion      string             `json:"pricing_version,omitempty" yaml:"pricing_version,omitempty"`
+	OpenRouter          OpenRouterSettings `json:"openrouter,omitempty" yaml:"openrouter,omitempty"`
 }
 
 type ModelAccessGroup struct {
@@ -79,6 +80,15 @@ func LoadConfig(path string) (Config, error) {
 	}
 	if len(data) > maxConfigBytes {
 		return c, errors.New("configuration exceeds 1 MiB")
+	}
+	// Inspect the node as well: YAML null skips UnmarshalYAML methods, but an
+	// explicitly supplied openrouter setting must be an object.
+	var document yaml.Node
+	if err = yaml.Unmarshal(data, &document); err != nil {
+		return c, err
+	}
+	if err = validateOpenRouterNodes(&document); err != nil {
+		return c, err
 	}
 	d := yaml.NewDecoder(bytes.NewReader(data))
 	d.KnownFields(true)
@@ -145,6 +155,9 @@ func (c Config) Validate() error {
 		}
 	}
 	for name, r := range c.Models {
+		if err := r.OpenRouter.Validate(); err != nil {
+			return fmt.Errorf("model %s openrouter: %w", name, err)
+		}
 		p, ok := c.Providers[r.Provider]
 		if !ok || name == "" || r.Model == "" || strings.ContainsAny(name, "\r\n") {
 			return fmt.Errorf("invalid model route %s", name)
