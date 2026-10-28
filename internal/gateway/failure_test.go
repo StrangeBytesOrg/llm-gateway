@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -66,44 +67,46 @@ func TestNonStreamingSlowClientReleasesConcurrency(t *testing.T) {
 }
 
 func TestClientDisconnectCancelsUpstream(t *testing.T) {
-	upstreamCancelled := make(chan struct{})
-	g, key, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("X-Generation-Id", "gen-cancelled")
-		fmt.Fprint(w, "data: {\"id\":\"gen-cancelled\",\"choices\":[{\"delta\":{\"content\":\"first\"}}]}\n\n")
-		w.(http.Flusher).Flush()
-		<-r.Context().Done()
-		close(upstreamCancelled)
+	synctest.Test(t, func(t *testing.T) {
+		upstreamCancelled := make(chan struct{})
+		g, key, _ := fixtureInMemory(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("X-Generation-Id", "gen-cancelled")
+			fmt.Fprint(w, "data: {\"id\":\"gen-cancelled\",\"choices\":[{\"delta\":{\"content\":\"first\"}}]}\n\n")
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
+			close(upstreamCancelled)
+		})
+		server := httptest.NewTestServer(t, g.InferenceHandler())
+		client := server.Client()
+		client.Timeout = 5 * time.Second
+		req, err := http.NewRequest("POST", server.URL+"/v1/chat/completions", strings.NewReader(`{"model":"alias","messages":[{}],"stream":true}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer "+key)
+		defer client.CloseIdleConnections()
+		response, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		select {
+		case <-upstreamCancelled:
+		case <-time.After(2 * time.Second):
+			t.Fatal("client disconnect did not cancel upstream")
+		}
+		g.StopAdmission()
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err = g.WaitInference(ctx); err != nil {
+			t.Fatal(err)
+		}
+		record := onlyRequest(t, g)
+		if record.Lifecycle != "cancelled" || record.Accounting != "pending" || record.GenerationID != "gen-cancelled" {
+			t.Fatalf("lost cancellation metadata: %+v", record)
+		}
 	})
-	server := httptest.NewServer(g.InferenceHandler())
-	defer server.Close()
-	req, err := http.NewRequest("POST", server.URL+"/v1/chat/completions", strings.NewReader(`{"model":"alias","messages":[{}],"stream":true}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Authorization", "Bearer "+key)
-	client := &http.Client{Timeout: 5 * time.Second}
-	defer client.CloseIdleConnections()
-	response, err := client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	response.Body.Close()
-	select {
-	case <-upstreamCancelled:
-	case <-time.After(2 * time.Second):
-		t.Fatal("client disconnect did not cancel upstream")
-	}
-	g.StopAdmission()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	if err = g.WaitInference(ctx); err != nil {
-		t.Fatal(err)
-	}
-	record := onlyRequest(t, g)
-	if record.Lifecycle != "cancelled" || record.Accounting != "pending" || record.GenerationID != "gen-cancelled" {
-		t.Fatalf("lost cancellation metadata: %+v", record)
-	}
 }
 
 func TestStorageFailurePreventsDispatch(t *testing.T) {
@@ -243,15 +246,17 @@ func TestResponseBoundsAndHeaderTimeout(t *testing.T) {
 		}
 	})
 	t.Run("header timeout", func(t *testing.T) {
-		g, key, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) { _, _ = io.Copy(io.Discard, r.Body); <-r.Context().Done() })
-		tr := g.Client.Transport.(*http.Transport).Clone()
-		tr.ResponseHeaderTimeout = 25 * time.Millisecond
-		g.Client.Transport = tr
-		t.Cleanup(tr.CloseIdleConnections)
-		w := call(g.InferenceHandler(), "POST", "/v1/chat/completions", key, `{"model":"alias","messages":[{}]}`)
-		if w.Code != 502 || !strings.Contains(w.Body.String(), "upstream_timeout") {
-			t.Fatalf("timeout: %d %s", w.Code, w.Body)
-		}
+		synctest.Test(t, func(t *testing.T) {
+			g, key, _ := fixtureInMemory(t, func(w http.ResponseWriter, r *http.Request) { _, _ = io.Copy(io.Discard, r.Body); <-r.Context().Done() })
+			tr := g.Client.Transport.(*http.Transport).Clone()
+			tr.ResponseHeaderTimeout = 25 * time.Millisecond
+			g.Client.Transport = tr
+			t.Cleanup(tr.CloseIdleConnections)
+			w := call(g.InferenceHandler(), "POST", "/v1/chat/completions", key, `{"model":"alias","messages":[{}]}`)
+			if w.Code != 502 || !strings.Contains(w.Body.String(), "upstream_timeout") {
+				t.Fatalf("timeout: %d %s", w.Code, w.Body)
+			}
+		})
 	})
 }
 

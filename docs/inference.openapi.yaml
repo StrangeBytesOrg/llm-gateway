@@ -49,6 +49,8 @@ paths:
     post:
       operationId: chatCompletions
       description: >-
+        The body must be one JSON object with valid UTF-8 and unique object names,
+        including nested objects; violations return 400 invalid_request.
         Compatible Chat Completions request. Tools, structured output and other
         upstream fields are forwarded. Routing overrides provider/models/route/
         transforms are rejected. user is replaced with the gateway user ID.

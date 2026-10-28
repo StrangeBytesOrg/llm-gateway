@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -20,6 +21,19 @@ func fixture(t *testing.T, upstream http.HandlerFunc) (*Gateway, string, string)
 	t.Helper()
 	up := httptest.NewTLSServer(upstream)
 	t.Cleanup(up.Close)
+	return fixtureWithServer(t, up)
+}
+
+func fixtureInMemory(t *testing.T, upstream http.HandlerFunc) (*Gateway, string, string) {
+	t.Helper()
+	up := httptest.NewTestServer(t, upstream)
+	// Config validation requires HTTPS; the in-memory client supports TLS.
+	up.URL = "https://example.com"
+	return fixtureWithServer(t, up)
+}
+
+func fixtureWithServer(t *testing.T, up *httptest.Server) (*Gateway, string, string) {
+	t.Helper()
 	admin := strings.Repeat("a", 40)
 	t.Setenv("TEST_ADMIN_TOKEN", admin)
 	t.Setenv("TEST_PROVIDER_KEY", "provider-secret")
@@ -258,23 +272,25 @@ func TestAuthenticationAndValidation(t *testing.T) {
 }
 
 func TestStreamIdleCancellation(t *testing.T) {
-	cancelled := make(chan struct{})
-	g, key, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, ": waiting\n\n")
-		w.(http.Flusher).Flush()
-		<-r.Context().Done()
-		close(cancelled)
+	synctest.Test(t, func(t *testing.T) {
+		cancelled := make(chan struct{})
+		g, key, _ := fixtureInMemory(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, ": waiting\n\n")
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
+			close(cancelled)
+		})
+		w := call(g.InferenceHandler(), "POST", "/v1/chat/completions", key, `{"model":"alias","messages":[{}],"stream":true}`)
+		select {
+		case <-cancelled:
+		case <-time.After(2 * time.Second):
+			t.Fatal("upstream was not cancelled")
+		}
+		if !strings.Contains(w.Body.String(), "upstream_stream_incomplete") {
+			t.Fatal(w.Body)
+		}
 	})
-	w := call(g.InferenceHandler(), "POST", "/v1/chat/completions", key, `{"model":"alias","messages":[{}],"stream":true}`)
-	select {
-	case <-cancelled:
-	case <-time.After(2 * time.Second):
-		t.Fatal("upstream was not cancelled")
-	}
-	if !strings.Contains(w.Body.String(), "upstream_stream_incomplete") {
-		t.Fatal(w.Body)
-	}
 }
 
 func TestLimiter(t *testing.T) {

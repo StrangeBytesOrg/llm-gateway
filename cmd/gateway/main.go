@@ -71,8 +71,8 @@ func run() error {
 		return fmt.Errorf("restart recovery: %w", err)
 	}
 	g := gateway.New(c, store, log)
-	inference := &http.Server{Addr: c.Listen, Handler: g.InferenceHandler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 32 << 10}
-	admin := &http.Server{Addr: c.AdminListen, Handler: g.AdminHandler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 5 * time.Minute, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10}
+	inference := newInferenceServer(c.Listen, g.InferenceHandler())
+	admin := newAdminServer(c.AdminListen, g.AdminHandler())
 	li, err := net.Listen("tcp", c.Listen)
 	if err != nil {
 		return err
@@ -128,4 +128,13 @@ func run() error {
 	g.Client.CloseIdleConnections()
 	log.Info("gateway stopped")
 	return serveErr
+}
+
+// Header value limits supplement the byte limits for requests with many small headers.
+func newInferenceServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 32 << 10, MaxHeaderValueCount: 128}
+}
+
+func newAdminServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 5 * time.Minute, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10, MaxHeaderValueCount: 64}
 }

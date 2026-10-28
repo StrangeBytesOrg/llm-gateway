@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -123,12 +124,8 @@ func (g *Gateway) chat(w http.ResponseWriter, r *http.Request) {
 	defer release()
 	r.Body = http.MaxBytesReader(w, r.Body, g.Config.MaxBodyBytes)
 	var payload map[string]json.RawMessage
-	decoder := json.NewDecoder(r.Body)
-	if err = decoder.Decode(&payload); err != nil || payload == nil {
-		g.reject(w, 400, "invalid_request")
-		return
-	}
-	if err = decoder.Decode(new(any)); err != io.EOF {
+	// Strictly validate the entire request, including provider extension fields.
+	if err = jsonv2.UnmarshalRead(r.Body, &payload); err != nil || payload == nil {
 		g.reject(w, 400, "invalid_request")
 		return
 	}
