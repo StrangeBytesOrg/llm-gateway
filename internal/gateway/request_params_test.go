@@ -120,8 +120,8 @@ func TestCompatibleConnections(t *testing.T) {
 					if streaming && !strings.Contains(w.Body.String(), "hello") {
 						t.Fatal("lost stream content")
 					}
-					if !streaming && !strings.Contains(w.Body.String(), `"model":"`+g.Config.Models[alias].Model+`"`) {
-						t.Fatal("upstream model not preserved")
+					if !streaming && !strings.Contains(w.Body.String(), `"model":"`+alias+`"`) {
+						t.Fatal("gateway model alias not preserved")
 					}
 				}
 				requests, err := g.Store.History(context.Background(), "", "", "", 100)

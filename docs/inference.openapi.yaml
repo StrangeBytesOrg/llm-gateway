@@ -81,9 +81,13 @@ paths:
       responses:
         "200":
           description: >-
-            Upstream JSON or incrementally relayed SSE. Streams can report errors
-            after HTTP 200; truncated streams receive a gateway error event and
-            DONE when the connection permits. Usage accounting is independent.
+            Gateway-normalized Chat Completions JSON or SSE with the requested
+            model alias and a stable gateway completion ID. Only explicitly
+            supported fields are returned; upstream costs, generation IDs, model
+            names, fingerprints, and provider metadata remain internal. See
+            docs/responses.md for the complete field contract. Streams can report
+            sanitized errors after HTTP 200 and receive DONE when the connection
+            permits. Original usage accounting is independent.
           headers:
             X-Request-ID:
               schema: { type: string }
@@ -92,9 +96,12 @@ paths:
               description: gateway;dur=ADMISSION_MILLISECONDS
           content:
             application/json:
-              schema: { type: object, additionalProperties: true }
+              schema: { $ref: "#/components/schemas/ChatCompletion" }
             text/event-stream:
               schema: { type: string }
+              description: >-
+                Rebuilt ChatCompletionChunk data events, fixed gateway keepalive
+                comments, optional sanitized gateway error event, then [DONE].
         "401": { $ref: "#/components/responses/Error" }
         "402":
           description: budget_exhausted or budget_not_started.
@@ -127,3 +134,254 @@ components:
             message: { type: string }
             type: { type: string, const: gateway_error }
             code: { type: string }
+    ChatCompletion:
+      type: object
+      additionalProperties: false
+      properties:
+        id: {type: string, pattern: ^chatcmpl-req_}
+        object: {type: string, const: chat.completion}
+        created: {type: integer}
+        model: {type: string, description: Requested gateway model alias.}
+        choices:
+          type: array
+          items: {$ref: '#/components/schemas/CompletionChoice'}
+        usage:
+          anyOf:
+          - {$ref: '#/components/schemas/CompletionUsage'}
+          - {type: 'null'}
+      required: [id, object, created, model, choices]
+    ChatCompletionChunk:
+      type: object
+      additionalProperties: false
+      properties:
+        id: {type: string, pattern: ^chatcmpl-req_}
+        object: {type: string, const: chat.completion.chunk}
+        created: {type: integer}
+        model: {type: string, description: Requested gateway model alias.}
+        choices:
+          type: array
+          items: {$ref: '#/components/schemas/StreamChoice'}
+        usage:
+          anyOf:
+          - {$ref: '#/components/schemas/CompletionUsage'}
+          - {type: 'null'}
+      required: [id, object, created, model, choices]
+    CompletionChoice:
+      type: object
+      additionalProperties: false
+      properties:
+        index: {type: integer, minimum: 0}
+        message: {$ref: '#/components/schemas/CompletionMessage'}
+        finish_reason:
+          type: [string, 'null']
+        logprobs:
+          anyOf:
+          - {$ref: '#/components/schemas/CompletionLogprobs'}
+          - {type: 'null'}
+      required: [index, message]
+    StreamChoice:
+      type: object
+      additionalProperties: false
+      properties:
+        index: {type: integer, minimum: 0}
+        delta: {$ref: '#/components/schemas/CompletionMessage'}
+        finish_reason:
+          type: [string, 'null']
+        logprobs:
+          anyOf:
+          - {$ref: '#/components/schemas/CompletionLogprobs'}
+          - {type: 'null'}
+      required: [index, delta]
+    CompletionMessage:
+      type: object
+      additionalProperties: false
+      properties:
+        role:
+          type: [string, 'null']
+          enum: [assistant, null]
+        content:
+          type: [string, 'null']
+        refusal:
+          type: [string, 'null']
+        tool_calls:
+          type: [array, 'null']
+          items: {$ref: '#/components/schemas/CompletionToolCall'}
+        function_call:
+          anyOf:
+          - {$ref: '#/components/schemas/CompletionFunction'}
+          - {type: 'null'}
+        reasoning:
+          type: [string, 'null']
+        reasoning_content:
+          type: [string, 'null']
+        reasoning_details:
+          type: [array, 'null']
+          items: {$ref: '#/components/schemas/CompletionReasoningDetail'}
+        thinking_blocks:
+          type: [array, 'null']
+          items: {$ref: '#/components/schemas/CompletionThinkingBlock'}
+        annotations:
+          type: [array, 'null']
+          items: {$ref: '#/components/schemas/CompletionAnnotation'}
+    CompletionToolCall:
+      type: object
+      additionalProperties: false
+      properties:
+        index:
+          type: [integer, 'null']
+          minimum: 0
+        id:
+          type: [string, 'null']
+        type:
+          type: [string, 'null']
+        function:
+          anyOf:
+          - {$ref: '#/components/schemas/CompletionFunction'}
+          - {type: 'null'}
+    CompletionFunction:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: [string, 'null']
+        arguments:
+          type: [string, 'null']
+    CompletionReasoningDetail:
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: [string, 'null']
+        id:
+          type: [string, 'null']
+        format:
+          type: [string, 'null']
+        index:
+          type: [integer, 'null']
+          minimum: 0
+        text:
+          type: [string, 'null']
+        summary:
+          type: [string, 'null']
+        signature:
+          type: [string, 'null']
+        data:
+          type: [string, 'null']
+    CompletionThinkingBlock:
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: [string, 'null']
+        thinking:
+          type: [string, 'null']
+        signature:
+          type: [string, 'null']
+        data:
+          type: [string, 'null']
+    CompletionAnnotation:
+      type: object
+      additionalProperties: false
+      properties:
+        type:
+          type: [string, 'null']
+        url_citation:
+          anyOf:
+          - {$ref: '#/components/schemas/CompletionURLCitation'}
+          - {type: 'null'}
+    CompletionURLCitation:
+      type: object
+      additionalProperties: false
+      properties:
+        start_index:
+          type: [integer, 'null']
+          minimum: 0
+        end_index:
+          type: [integer, 'null']
+          minimum: 0
+        url:
+          type: [string, 'null']
+        title:
+          type: [string, 'null']
+    CompletionLogprobs:
+      type: object
+      additionalProperties: false
+      properties:
+        content:
+          type: [array, 'null']
+          items: {$ref: '#/components/schemas/CompletionTokenLogprob'}
+        refusal:
+          type: [array, 'null']
+          items: {$ref: '#/components/schemas/CompletionTokenLogprob'}
+    CompletionTokenLogprob:
+      type: object
+      additionalProperties: false
+      properties:
+        token:
+          type: [string, 'null']
+        logprob:
+          type: [number, 'null']
+        bytes:
+          type: [array, 'null']
+          items: {type: integer}
+        top_logprobs:
+          type: [array, 'null']
+          items: {$ref: '#/components/schemas/CompletionTopLogprob'}
+    CompletionTopLogprob:
+      type: object
+      additionalProperties: false
+      properties:
+        token:
+          type: [string, 'null']
+        logprob:
+          type: [number, 'null']
+        bytes:
+          type: [array, 'null']
+          items: {type: integer}
+    CompletionUsage:
+      type: object
+      additionalProperties: false
+      properties:
+        prompt_tokens:
+          type: [integer, 'null']
+          minimum: 0
+        completion_tokens:
+          type: [integer, 'null']
+          minimum: 0
+        total_tokens:
+          type: [integer, 'null']
+          minimum: 0
+        prompt_tokens_details:
+          anyOf:
+          - {$ref: '#/components/schemas/CompletionPromptTokens'}
+          - {type: 'null'}
+        completion_tokens_details:
+          anyOf:
+          - {$ref: '#/components/schemas/CompletionOutputTokens'}
+          - {type: 'null'}
+    CompletionPromptTokens:
+      type: object
+      additionalProperties: false
+      properties:
+        cached_tokens:
+          type: [integer, 'null']
+          minimum: 0
+        audio_tokens:
+          type: [integer, 'null']
+          minimum: 0
+    CompletionOutputTokens:
+      type: object
+      additionalProperties: false
+      properties:
+        reasoning_tokens:
+          type: [integer, 'null']
+          minimum: 0
+        audio_tokens:
+          type: [integer, 'null']
+          minimum: 0
+        accepted_prediction_tokens:
+          type: [integer, 'null']
+          minimum: 0
+        rejected_prediction_tokens:
+          type: [integer, 'null']
+          minimum: 0

@@ -28,7 +28,7 @@ func (o *observation) inspect(data []byte) error {
 		Usage json.RawMessage `json:"usage"`
 		Error json.RawMessage `json:"error"`
 	}
-	if err := json.Unmarshal(data, &v); err != nil {
+	if err := jsonv2.Unmarshal(data, &v); err != nil {
 		return err
 	}
 	if len(v.ID) > 512 {
@@ -300,17 +300,20 @@ func (g *Gateway) chat(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 502, "invalid_upstream_response")
 		return
 	}
-	state, finishCode := "completed", ""
 	if obs.upstreamError {
-		state = "failed"
-		finishCode = "upstream_error"
 		g.Metrics.UpstreamErrors.Add(1)
-	}
-	g.finalize(request, state, finishCode, obs, false)
-	if obs.upstreamError {
+		g.finalize(request, "failed", "upstream_error", obs, false)
 		apiError(w, 502, "upstream_error")
 		return
 	}
+	data, err = rebuildCompletion(data, request)
+	if err != nil {
+		g.Metrics.UpstreamErrors.Add(1)
+		g.finalize(request, "failed", "invalid_upstream_response", obs, false)
+		apiError(w, 502, "invalid_upstream_response")
+		return
+	}
+	g.finalize(request, "completed", "", obs, false)
 	if deadline, ok := r.Context().Deadline(); ok {
 		_ = http.NewResponseController(w).SetWriteDeadline(deadline)
 	}
@@ -381,44 +384,51 @@ func (g *Gateway) relayStream(w http.ResponseWriter, r *http.Request, response *
 	saved := obs.generation
 	done := false
 	first := false
+	var writeErr error
+	writeEvent := func(data []byte) error {
+		_ = controller.SetWriteDeadline(time.Now().Add(seconds(g.Config.StreamIdleSeconds)))
+		_, writeErr = w.Write(data)
+		if writeErr == nil {
+			writeErr = controller.Flush()
+		}
+		return writeErr
+	}
+	var lastKeepalive time.Time
+	parser.OnComment = func() error {
+		if time.Since(lastKeepalive) < time.Second {
+			return nil
+		}
+		lastKeepalive = time.Now()
+		return writeEvent([]byte(": keepalive\n\n"))
+	}
 	parser.OnEvent = func(data []byte) error {
+		if done {
+			return errors.New("event after DONE")
+		}
 		if bytes.Equal(bytes.TrimSpace(data), []byte("[DONE]")) {
 			done = true
 			return nil
 		}
-		if done {
-			return errors.New("event after DONE")
-		}
 		if err := obs.inspect(data); err != nil {
 			return err
-		}
-		if !first {
-			var v struct {
-				Choices []struct {
-					Delta map[string]json.RawMessage `json:"delta"`
-				} `json:"choices"`
-			}
-			if json.Unmarshal(data, &v) == nil {
-				for _, c := range v.Choices {
-					for _, name := range []string{"content", "tool_calls", "reasoning", "reasoning_content"} {
-						if b := c.Delta[name]; len(b) > 0 && string(b) != "null" && string(b) != `""` {
-							first = true
-							g.Metrics.FirstTokenNS.Add(time.Since(started).Nanoseconds())
-							g.Metrics.FirstTokenCount.Add(1)
-							break
-						}
-					}
-					if first {
-						break
-					}
-				}
-			}
 		}
 		if saved == "" && obs.generation != "" {
 			g.saveGeneration(request.ID, obs.generation)
 			saved = obs.generation
 		}
-		return nil
+		if obs.upstreamError {
+			return errors.New("upstream error")
+		}
+		data, hasContent, err := rebuildChunk(data, request)
+		if err != nil {
+			return err
+		}
+		if !first && hasContent {
+			first = true
+			g.Metrics.FirstTokenNS.Add(time.Since(started).Nanoseconds())
+			g.Metrics.FirstTokenCount.Add(1)
+		}
+		return writeEvent(append(append([]byte("data: "), data...), '\n', '\n'))
 	}
 	buf := make([]byte, 32<<10)
 	state, code := "completed", ""
@@ -443,17 +453,6 @@ func (g *Gateway) relayStream(w http.ResponseWriter, r *http.Request, response *
 				code = "invalid_upstream_stream"
 				break
 			}
-			_ = controller.SetWriteDeadline(time.Now().Add(seconds(g.Config.StreamIdleSeconds)))
-			if _, err := w.Write(buf[:n]); err != nil {
-				state = "cancelled"
-				code = "client_disconnected"
-				break
-			}
-			if err := controller.Flush(); err != nil {
-				state = "cancelled"
-				code = "client_disconnected"
-				break
-			}
 		}
 		if done {
 			break
@@ -464,7 +463,7 @@ func (g *Gateway) relayStream(w http.ResponseWriter, r *http.Request, response *
 			break
 		}
 	}
-	if errors.Is(r.Context().Err(), context.Canceled) {
+	if writeErr != nil || errors.Is(r.Context().Err(), context.Canceled) {
 		state = "cancelled"
 		code = "client_disconnected"
 	}
@@ -474,11 +473,14 @@ func (g *Gateway) relayStream(w http.ResponseWriter, r *http.Request, response *
 	}
 	if state == "failed" {
 		g.Metrics.UpstreamErrors.Add(1)
-		if !done {
-			data, _ := json.Marshal(map[string]any{"error": map[string]string{"type": "gateway_error", "code": code, "message": strings.ReplaceAll(code, "_", " ")}})
-			_ = controller.SetWriteDeadline(time.Now().Add(time.Second))
-			_, _ = fmt.Fprintf(w, "\n\ndata: %s\n\ndata: [DONE]\n\n", data)
-			_ = controller.Flush()
+		data, _ := json.Marshal(map[string]any{"error": map[string]string{"type": "gateway_error", "code": code, "message": strings.ReplaceAll(code, "_", " ")}})
+		_ = controller.SetWriteDeadline(time.Now().Add(time.Second))
+		_, _ = fmt.Fprintf(w, "\n\ndata: %s\n\ndata: [DONE]\n\n", data)
+		_ = controller.Flush()
+	}
+	if state == "completed" {
+		if err := writeEvent([]byte("data: [DONE]\n\n")); err != nil {
+			state, code = "cancelled", "client_disconnected"
 		}
 	}
 	_ = response.Body.Close()
@@ -486,10 +488,11 @@ func (g *Gateway) relayStream(w http.ResponseWriter, r *http.Request, response *
 }
 
 // SSEParser accepts fragmented CR/LF lines, comments and multiline data with a
-// fixed bound on unfinished events. It retains accounting frames, never output.
+// fixed bound on unfinished events. Callbacks receive complete events only.
 type SSEParser struct {
 	MaxEventBytes int
 	OnEvent       func([]byte) error
+	OnComment     func() error
 	line          []byte
 	data          []byte
 	size          int
@@ -540,6 +543,9 @@ func (p *SSEParser) endLine() error {
 	}
 	if line[0] == ':' {
 		p.size -= len(line)
+		if p.OnComment != nil {
+			return p.OnComment()
+		}
 		return nil
 	}
 	name, value, found := bytes.Cut(line, []byte(":"))

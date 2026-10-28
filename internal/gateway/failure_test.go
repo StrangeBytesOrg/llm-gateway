@@ -365,10 +365,13 @@ func TestStreamDoesNotBufferUntilCompletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	buf := make([]byte, len(": first frame\n\n"))
+	buf := make([]byte, len(": keepalive\n\n"))
 	if _, err = io.ReadFull(resp.Body, buf); err != nil {
 		close(finish)
 		t.Fatal(err)
+	}
+	if string(buf) != ": keepalive\n\n" {
+		t.Errorf("unexpected keepalive: %q", buf)
 	}
 	close(finish)
 	if _, err = io.Copy(io.Discard, resp.Body); err != nil {

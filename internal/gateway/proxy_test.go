@@ -146,7 +146,7 @@ func TestStreamingResponseSizeLimit(t *testing.T) {
 				if !strings.Contains(w.Body.String(), "upstream_response_too_large") || strings.Contains(w.Body.String(), stream) || req.Lifecycle != "failed" || req.Accounting != "pending" || req.GenerationID != "gen-limit" {
 					t.Fatalf("body=%q request=%+v", w.Body.String(), req)
 				}
-			} else if w.Body.String() != stream || req.Lifecycle != "completed" {
+			} else if !strings.HasSuffix(w.Body.String(), "data: [DONE]\n\n") || strings.Contains(w.Body.String(), "gen-limit") || req.Lifecycle != "completed" {
 				t.Fatalf("body=%q request=%+v", w.Body.String(), req)
 			}
 		})
