@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/StrangeBytesOrg/llm-gateway/internal/gateway"
+	"go.yaml.in/yaml/v3"
 )
 
 func freeAddress(t *testing.T) string {
@@ -34,11 +35,11 @@ func TestExecutableLifecycle(t *testing.T) {
 	dir := t.TempDir()
 	inference, admin := freeAddress(t), freeAddress(t)
 	path := filepath.Join(dir, "gateway.db")
-	configPath := filepath.Join(dir, "config.json")
+	configPath := filepath.Join(dir, "config.yaml")
 	config := map[string]any{"listen": inference, "admin_listen": admin, "database": path, "backup_directory": filepath.Join(dir, "backups"), "providers": map[string]any{"openrouter": map[string]string{"base_url": "https://example.invalid/api/v1", "api_key_env": "OPENROUTER_API_KEY", "accounting": "openrouter"}}, "models": map[string]any{"default": map[string]string{"provider": "openrouter", "model": "test"}}}
 	config["model_access_groups"] = map[string]any{"free": map[string]any{"models": []string{"default"}}}
 	config["default_model_access_group"] = "free"
-	data, err := json.Marshal(config)
+	data, err := yaml.Marshal(config)
 	if err != nil {
 		t.Fatal(err)
 	}

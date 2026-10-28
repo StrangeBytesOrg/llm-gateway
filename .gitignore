@@ -1,6 +1,6 @@
 /bin/
 /data/
-/config.json
+/config.yaml
 *.db
 *.db-shm
 *.db-wal

@@ -7,12 +7,14 @@ A Go gateway for internal inference access, virtual keys, recurring user budgets
 Requires Go 1.27.3 or later.
 
 ```sh
-cp config.example.json config.json
+cp config.example.yaml config.yaml
 export GATEWAY_ADMIN_TOKEN="$(openssl rand -hex 32)"
 export OPENROUTER_API_KEY='your-provider-key'
-go run ./cmd/gateway -config config.json -check
-go run ./cmd/gateway -config config.json
+go run ./cmd/gateway -config config.yaml -check
+go run ./cmd/gateway -config config.yaml
 ```
+
+Configuration uses YAML, with defaults applied to omitted optional settings. Unknown fields, duplicate keys, multiple documents, and files larger than 1 MiB are rejected. A [configuration schema](config.schema.json) is available for editor autocomplete and validation. Use `-check` to validate configuration, references, and credentials. Keep token pricing values quoted, such as `input_usd_per_million: "0.15"`.
 
 Inference listens on port 8080; administration binds to loopback port 8081. Put inference behind a TLS reverse proxy before exposing it. Both APIs use bearer authentication; only `/health/live` is public. Do not expose the admin listener to untrusted networks. Credentials are resolved from environment variables at startup/request time, never stored in SQLite. Cors is enabled by default on the inference API.
 
@@ -45,16 +47,13 @@ Users have a single immutable `id`. Supply it during creation to use your own ID
 
 Define `model_access_groups` alongside `models`. Each group lists gateway model aliases, independently of the upstream providers behind those aliases:
 
-```json
-{
-  "model_access_groups": {
-    "free": { "models": ["fast"] },
-    "basic": { "models": ["fast", "advanced"] },
-    "premium": { "models": ["fast", "advanced", "flagship"] },
-    "none": { "models": [] }
-  },
-  "default_model_access_group": "free"
-}
+```yaml
+model_access_groups:
+  free: { models: [fast] }
+  basic: { models: [fast, advanced] }
+  premium: { models: [fast, advanced, flagship] }
+  none: { models: [] }
+default_model_access_group: free
 ```
 
 Every listed alias must exist in `models`. Group IDs are case-sensitive lowercase slugs, and containing up to 64 letters, digits, or hyphens. Unknown aliases, duplicate aliases within a group, missing model arrays, invalid group IDs, and undefined defaults fail configuration validation. Lists are explicit: there is no inheritance, wildcard, or implicit access when a new model route is added. An empty array grants no model access. The `default` model alias, if configured, needs explicit inclusion like any other alias.
@@ -140,7 +139,7 @@ List APIs accept `limit` (1–500, default 100) and `after`; follow `next_cursor
 - Inference lifecycle and accounting status are independent. Accounting is `pending`, `settled`, or `unresolved`. Automatic settlement is idempotent. Manual resolution specifies a replacement **total** and reason; the ledger receives only the difference and the audit log records the action.
 - Reconciliation retries with exponential backoff, capped at one hour; after 12 failed attempts a record becomes unresolved. Requests with no recoverable generation ID also eventually become unresolved. Operators resolve these using provider records. Users continue against known spending while costs remain unknown.
 
-Compatible providers can use `accounting: "reported"` when they return a trustworthy `usage.cost` in USD. `accounting: "token_rates"` requires `input_usd_per_million`, `output_usd_per_million`, and `pricing_version` on each model route. That mode only supports flat text token pricing; nonzero cache/audio/other detail dimensions remain unresolved instead of being silently mispriced. Rates are snapshotted per request. Test a provider's streaming, token and cost semantics before enabling it. Cloudflare has not yet passed that conformance testing.
+Compatible providers can use `accounting: reported` when they return a trustworthy `usage.cost` in USD. `accounting: token_rates` requires `input_usd_per_million`, `output_usd_per_million`, and `pricing_version` on each model route. That mode only supports flat text token pricing; nonzero cache/audio/other detail dimensions remain unresolved instead of being silently mispriced. Rates are snapshotted per request. Test a provider's streaming, token and cost semantics before enabling it. Cloudflare has not yet passed that conformance testing.
 
 The gateway sends no automatic inference retries and implements no route fallback. A retry after an ambiguous failure could create another billable generation. Unknown request parameters are forwarded; clients remain responsible for provider/model support. Native provider APIs, Responses, embeddings, image/audio generation endpoints, user login, and a dashboard are outside v1.
 

@@ -1,0 +1,241 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LLM Gateway configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "listen": {
+      "type": "string",
+      "description": "Inference API listen address.",
+      "default": ":8080"
+    },
+    "admin_listen": {
+      "type": "string",
+      "description": "Administration listen address. Keep this on loopback or a private network.",
+      "default": "127.0.0.1:8081"
+    },
+    "database": {
+      "type": "string",
+      "description": "SQLite database path.",
+      "default": "data/gateway.db"
+    },
+    "backup_directory": {
+      "type": "string",
+      "description": "Directory for database backups.",
+      "default": "data/backups"
+    },
+    "backup_interval_seconds": {
+      "type": "integer",
+      "description": "Seconds between automatic database backups.",
+      "minimum": 1,
+      "maximum": 86400,
+      "default": 86400
+    },
+    "admin_token_env": {
+      "type": "string",
+      "description": "Environment variable containing the admin bearer credential.",
+      "default": "GATEWAY_ADMIN_TOKEN"
+    },
+    "default_model_access_group": {
+      "type": "string",
+      "description": "Group assigned to newly created users when no group is specified."
+    },
+    "max_body_bytes": {
+      "type": "integer",
+      "description": "Maximum inference request body size in bytes.",
+      "minimum": 1,
+      "maximum": 67108864,
+      "default": 4194304
+    },
+    "max_response_bytes": {
+      "type": "integer",
+      "description": "Maximum upstream response size in bytes.",
+      "minimum": 1,
+      "maximum": 67108864,
+      "default": 16777216
+    },
+    "max_output_tokens": {
+      "type": "integer",
+      "description": "Maximum output tokens allowed per inference request.",
+      "minimum": 1,
+      "default": 4096
+    },
+    "global_concurrency": {
+      "type": "integer",
+      "description": "Maximum active inference requests across all users.",
+      "minimum": 1,
+      "default": 100
+    },
+    "user_concurrency": {
+      "type": "integer",
+      "description": "Maximum active inference requests per user.",
+      "minimum": 1,
+      "default": 4
+    },
+    "user_requests_per_minute": {
+      "type": "integer",
+      "description": "Maximum inference requests per minute per user.",
+      "minimum": 1,
+      "default": 60
+    },
+    "request_timeout_seconds": {
+      "type": "integer",
+      "description": "Overall upstream request timeout in seconds.",
+      "minimum": 1,
+      "maximum": 86400,
+      "default": 300
+    },
+    "header_timeout_seconds": {
+      "type": "integer",
+      "description": "Upstream response header timeout in seconds.",
+      "minimum": 1,
+      "maximum": 86400,
+      "default": 60
+    },
+    "stream_idle_seconds": {
+      "type": "integer",
+      "description": "Maximum idle time between upstream stream events in seconds.",
+      "minimum": 1,
+      "maximum": 86400,
+      "default": 60
+    },
+    "shutdown_seconds": {
+      "type": "integer",
+      "description": "Seconds to drain active requests during shutdown.",
+      "minimum": 1,
+      "maximum": 86400,
+      "default": 30
+    },
+    "reconcile_max_attempts": {
+      "type": "integer",
+      "description": "Maximum automatic accounting reconciliation attempts.",
+      "minimum": 1,
+      "maximum": 86400,
+      "default": 12
+    },
+    "providers": {
+      "type": "object",
+      "description": "Named upstream providers. Credentials reference environment variables.",
+      "additionalProperties": {
+        "$ref": "#/$defs/provider"
+      },
+      "minProperties": 1,
+      "propertyNames": {
+        "minLength": 1
+      }
+    },
+    "models": {
+      "type": "object",
+      "description": "Gateway model aliases mapped to upstream models.",
+      "additionalProperties": {
+        "$ref": "#/$defs/route"
+      },
+      "minProperties": 1,
+      "propertyNames": {
+        "minLength": 1
+      }
+    },
+    "model_access_groups": {
+      "type": "object",
+      "description": "Explicit sets of gateway model aliases available to each group.",
+      "additionalProperties": {
+        "$ref": "#/$defs/group"
+      },
+      "propertyNames": {
+        "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+      }
+    }
+  },
+  "required": [
+    "providers",
+    "models",
+    "model_access_groups",
+    "default_model_access_group"
+  ],
+  "$defs": {
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "base_url": {
+          "type": "string",
+          "description": "HTTPS API base URL without userinfo, query, or fragment.",
+          "pattern": "^https://",
+          "format": "uri"
+        },
+        "api_key_env": {
+          "type": "string",
+          "description": "Environment variable containing the provider API key.",
+          "minLength": 1
+        },
+        "accounting": {
+          "type": "string",
+          "description": "How request costs are calculated.",
+          "enum": [
+            "openrouter",
+            "reported",
+            "token_rates"
+          ]
+        }
+      },
+      "required": [
+        "base_url",
+        "api_key_env",
+        "accounting"
+      ]
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "type": "string",
+          "description": "Name of a configured provider.",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "description": "Upstream model identifier.",
+          "minLength": 1
+        },
+        "input_usd_per_million": {
+          "type": "string",
+          "description": "Flat USD price per million input tokens. Quote this decimal string; required for token_rates.",
+          "pattern": "^[0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]{1,2})?$",
+          "maxLength": 100
+        },
+        "output_usd_per_million": {
+          "type": "string",
+          "description": "Flat USD price per million output tokens. Quote this decimal string; required for token_rates.",
+          "pattern": "^[0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]{1,2})?$",
+          "maxLength": 100
+        },
+        "pricing_version": {
+          "type": "string",
+          "description": "Pricing version snapshotted for accounting; required for token_rates."
+        }
+      },
+      "required": [
+        "provider",
+        "model"
+      ]
+    },
+    "group": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "models": {
+          "type": "array",
+          "description": "Allowed gateway model aliases. An empty array grants no model access.",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "models"
+      ]
+    }
+  }
+}

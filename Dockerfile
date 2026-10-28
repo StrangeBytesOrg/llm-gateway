@@ -12,4 +12,4 @@ WORKDIR /
 USER nonroot:nonroot
 EXPOSE 8080
 ENTRYPOINT ["/gateway"]
-CMD ["-config", "/etc/gateway/config.json"]
+CMD ["-config", "/etc/gateway/config.yaml"]

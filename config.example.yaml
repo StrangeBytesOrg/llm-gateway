@@ -1,0 +1,39 @@
+# yaml-language-server: $schema=./config.schema.json
+
+listen: ":8080"
+admin_listen: 127.0.0.1:8081
+database: data/gateway.db
+backup_directory: data/backups
+backup_interval_seconds: 86400
+# Credentials are read from environment variables, never stored here.
+admin_token_env: GATEWAY_ADMIN_TOKEN
+
+providers:
+  openrouter:
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    accounting: openrouter
+
+models:
+  default:
+    provider: openrouter
+    model: openai/gpt-4o-mini
+
+# Groups list gateway aliases, not upstream model names.
+model_access_groups:
+  free:
+    models: [default]
+
+default_model_access_group: free
+
+max_body_bytes: 4194304
+max_response_bytes: 16777216
+max_output_tokens: 4096
+global_concurrency: 100
+user_concurrency: 4
+user_requests_per_minute: 60
+request_timeout_seconds: 300
+header_timeout_seconds: 60
+stream_idle_seconds: 60
+shutdown_seconds: 30
+reconcile_max_attempts: 12

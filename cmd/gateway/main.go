@@ -24,7 +24,7 @@ func main() {
 	}
 }
 func run() error {
-	configPath := flag.String("config", "config.json", "JSON configuration file")
+	configPath := flag.String("config", "config.yaml", "YAML configuration file")
 	check := flag.Bool("check", false, "validate configuration and exit")
 	verify := flag.String("verify-backup", "", "verify a backup database and exit (no configuration required)")
 	exportSpec := flag.Bool("export-admin-openapi", false, "print generated admin OpenAPI JSON and exit (no configuration required)")

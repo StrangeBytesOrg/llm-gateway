@@ -2,7 +2,7 @@
 
 ## Deployment
 
-Build with `make build`, then run `bin/gateway -config /path/to/config.json`. The binary supports `-check` to validate configuration without touching the database, `-verify-backup FILE` to check backup integrity, and `-export-admin-openapi` to print the generated admin contract. The last two modes require neither credentials nor configuration.
+Build with `make build`, then run `bin/gateway -config /path/to/config.yaml`. The binary supports `-check` to validate configuration without touching the database, `-verify-backup FILE` to check backup integrity, and `-export-admin-openapi` to print the generated admin contract. The last two modes require neither credentials nor configuration.
 
 The service supports one active process per database. An advisory lock prevents another gateway process opening the same database. Use local persistent storage with working file locking and fsync; do not share the WAL database across network filesystems or hosts. Preserve the database, WAL, and shared-memory files together when managing a stopped instance. Never copy only a live `.db` file as a backup.
 
@@ -15,7 +15,7 @@ Container example (Linux host networking preserves the example's loopback-only a
 ```sh
 docker build -t llm-gateway .
 docker run --name llm-gateway --network host --read-only --tmpfs /tmp \
-  --mount type=bind,src="$PWD/config.json",dst=/etc/gateway/config.json,readonly \
+  --mount type=bind,src="$PWD/config.yaml",dst=/etc/gateway/config.yaml,readonly \
   --mount type=volume,src=llm-gateway-data,dst=/data \
   --env GATEWAY_ADMIN_TOKEN --env OPENROUTER_API_KEY \
   llm-gateway

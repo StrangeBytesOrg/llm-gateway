@@ -1,7 +1,7 @@
 package gateway
 
 import (
-	"encoding/json"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -11,24 +11,26 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"go.yaml.in/yaml/v3"
 )
 
 type Provider struct {
-	BaseURL    string `json:"base_url"`
-	APIKeyEnv  string `json:"api_key_env"`
-	Accounting string `json:"accounting"` // openrouter, reported, or token_rates
+	BaseURL    string `json:"base_url" yaml:"base_url"`
+	APIKeyEnv  string `json:"api_key_env" yaml:"api_key_env"`
+	Accounting string `json:"accounting" yaml:"accounting"` // openrouter, reported, or token_rates
 }
 
 type Route struct {
-	Provider            string `json:"provider"`
-	Model               string `json:"model"`
-	InputUSDPerMillion  string `json:"input_usd_per_million,omitempty"`
-	OutputUSDPerMillion string `json:"output_usd_per_million,omitempty"`
-	PricingVersion      string `json:"pricing_version,omitempty"`
+	Provider            string `json:"provider" yaml:"provider"`
+	Model               string `json:"model" yaml:"model"`
+	InputUSDPerMillion  string `json:"input_usd_per_million,omitempty" yaml:"input_usd_per_million,omitempty"`
+	OutputUSDPerMillion string `json:"output_usd_per_million,omitempty" yaml:"output_usd_per_million,omitempty"`
+	PricingVersion      string `json:"pricing_version,omitempty" yaml:"pricing_version,omitempty"`
 }
 
 type ModelAccessGroup struct {
-	Models []string `json:"models"`
+	Models []string `json:"models" yaml:"models"`
 }
 
 var groupIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
@@ -40,27 +42,27 @@ func (c Config) AllowsModel(group, model string) bool {
 }
 
 type Config struct {
-	ModelAccessGroups       map[string]ModelAccessGroup `json:"model_access_groups"`
-	DefaultModelAccessGroup string                      `json:"default_model_access_group"`
-	Listen                  string                      `json:"listen"`
-	AdminListen             string                      `json:"admin_listen"`
-	Database                string                      `json:"database"`
-	BackupDirectory         string                      `json:"backup_directory"`
-	BackupIntervalSeconds   int                         `json:"backup_interval_seconds"`
-	AdminTokenEnv           string                      `json:"admin_token_env"`
-	Providers               map[string]Provider         `json:"providers"`
-	Models                  map[string]Route            `json:"models"`
-	MaxBodyBytes            int64                       `json:"max_body_bytes"`
-	MaxResponseBytes        int64                       `json:"max_response_bytes"`
-	MaxOutputTokens         int                         `json:"max_output_tokens"`
-	GlobalConcurrency       int                         `json:"global_concurrency"`
-	UserConcurrency         int                         `json:"user_concurrency"`
-	UserRequestsPerMinute   int                         `json:"user_requests_per_minute"`
-	RequestTimeoutSeconds   int                         `json:"request_timeout_seconds"`
-	HeaderTimeoutSeconds    int                         `json:"header_timeout_seconds"`
-	StreamIdleSeconds       int                         `json:"stream_idle_seconds"`
-	ShutdownSeconds         int                         `json:"shutdown_seconds"`
-	ReconcileMaxAttempts    int                         `json:"reconcile_max_attempts"`
+	ModelAccessGroups       map[string]ModelAccessGroup `json:"model_access_groups" yaml:"model_access_groups"`
+	DefaultModelAccessGroup string                      `json:"default_model_access_group" yaml:"default_model_access_group"`
+	Listen                  string                      `json:"listen" yaml:"listen"`
+	AdminListen             string                      `json:"admin_listen" yaml:"admin_listen"`
+	Database                string                      `json:"database" yaml:"database"`
+	BackupDirectory         string                      `json:"backup_directory" yaml:"backup_directory"`
+	BackupIntervalSeconds   int                         `json:"backup_interval_seconds" yaml:"backup_interval_seconds"`
+	AdminTokenEnv           string                      `json:"admin_token_env" yaml:"admin_token_env"`
+	Providers               map[string]Provider         `json:"providers" yaml:"providers"`
+	Models                  map[string]Route            `json:"models" yaml:"models"`
+	MaxBodyBytes            int64                       `json:"max_body_bytes" yaml:"max_body_bytes"`
+	MaxResponseBytes        int64                       `json:"max_response_bytes" yaml:"max_response_bytes"`
+	MaxOutputTokens         int                         `json:"max_output_tokens" yaml:"max_output_tokens"`
+	GlobalConcurrency       int                         `json:"global_concurrency" yaml:"global_concurrency"`
+	UserConcurrency         int                         `json:"user_concurrency" yaml:"user_concurrency"`
+	UserRequestsPerMinute   int                         `json:"user_requests_per_minute" yaml:"user_requests_per_minute"`
+	RequestTimeoutSeconds   int                         `json:"request_timeout_seconds" yaml:"request_timeout_seconds"`
+	HeaderTimeoutSeconds    int                         `json:"header_timeout_seconds" yaml:"header_timeout_seconds"`
+	StreamIdleSeconds       int                         `json:"stream_idle_seconds" yaml:"stream_idle_seconds"`
+	ShutdownSeconds         int                         `json:"shutdown_seconds" yaml:"shutdown_seconds"`
+	ReconcileMaxAttempts    int                         `json:"reconcile_max_attempts" yaml:"reconcile_max_attempts"`
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -70,13 +72,21 @@ func LoadConfig(path string) (Config, error) {
 	}
 	defer f.Close()
 	c := Config{Listen: ":8080", AdminListen: "127.0.0.1:8081", Database: "data/gateway.db", BackupDirectory: "data/backups", BackupIntervalSeconds: 86400, AdminTokenEnv: "GATEWAY_ADMIN_TOKEN", MaxBodyBytes: 4 << 20, MaxResponseBytes: 16 << 20, MaxOutputTokens: 4096, GlobalConcurrency: 100, UserConcurrency: 4, UserRequestsPerMinute: 60, RequestTimeoutSeconds: 300, HeaderTimeoutSeconds: 60, StreamIdleSeconds: 60, ShutdownSeconds: 30, ReconcileMaxAttempts: 12}
-	d := json.NewDecoder(io.LimitReader(f, 1<<20))
-	d.DisallowUnknownFields()
+	const maxConfigBytes = 1 << 20
+	data, err := io.ReadAll(io.LimitReader(f, maxConfigBytes+1))
+	if err != nil {
+		return c, err
+	}
+	if len(data) > maxConfigBytes {
+		return c, errors.New("configuration exceeds 1 MiB")
+	}
+	d := yaml.NewDecoder(bytes.NewReader(data))
+	d.KnownFields(true)
 	if err = d.Decode(&c); err != nil {
 		return c, err
 	}
 	if err = d.Decode(new(any)); err != io.EOF {
-		return c, errors.New("configuration must contain one JSON object")
+		return c, errors.New("configuration must contain one YAML document")
 	}
 	return c, c.Validate()
 }
