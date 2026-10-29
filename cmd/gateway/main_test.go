@@ -20,20 +20,25 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-func freeAddress(t *testing.T) string {
+func freeAddresses(t *testing.T) (string, string) {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	var addresses [2]string
+	for i := range addresses {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Keep both ports reserved until selection finishes so the OS cannot
+		// assign the same port to the inference and admin listeners.
+		defer l.Close()
+		addresses[i] = l.Addr().String()
 	}
-	address := l.Addr().String()
-	l.Close()
-	return address
+	return addresses[0], addresses[1]
 }
 
 func TestExecutableLifecycle(t *testing.T) {
 	dir := t.TempDir()
-	inference, admin := freeAddress(t), freeAddress(t)
+	inference, admin := freeAddresses(t)
 	path := filepath.Join(dir, "gateway.db")
 	configPath := filepath.Join(dir, "config.yaml")
 	config := map[string]any{"listen": inference, "admin_listen": admin, "database": path, "backup_directory": filepath.Join(dir, "backups"), "providers": map[string]any{"openrouter": map[string]string{"base_url": "https://example.invalid/api/v1", "api_key_env": "OPENROUTER_API_KEY", "accounting": "openrouter"}}, "models": map[string]any{"default": map[string]string{"provider": "openrouter", "model": "test"}}}
@@ -62,15 +67,26 @@ func TestExecutableLifecycle(t *testing.T) {
 			child.Process.Kill()
 			<-done
 		}
+		if t.Failed() {
+			t.Logf("gateway subprocess output:\n%s", logs.String())
+		}
 	}()
 	client := &http.Client{Timeout: time.Second}
 	defer client.CloseIdleConnections()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
+		select {
+		case err := <-done:
+			stopped = true
+			t.Fatalf("gateway exited before becoming live: %v", err)
+		default:
+		}
 		response, e := client.Get("http://" + inference + "/health/live")
 		if e == nil {
 			response.Body.Close()
-			break
+			if response.StatusCode == http.StatusOK {
+				break
+			}
 		}
 		if time.Now().After(deadline) {
 			t.Fatal("gateway never became live")

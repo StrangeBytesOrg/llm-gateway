@@ -1,20 +1,67 @@
-name: Go checks
+name: Checks and releases
 on:
   push:
+    branches: [main]
+    tags: ["v*"]
   pull_request:
+  schedule:
+    - cron: "23 9 * * 1"
+  workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'branch') }}
 jobs:
   test:
+    name: Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
+
       - name: Check formatting
         run: test -z "$(gofmt -l cmd internal)"
+
       - run: go vet ./...
       - run: go test -race -cover ./...
       - run: go build ./cmd/gateway
+      - run: make vuln
+
+  container:
+    name: Build Container Image
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          pull: true
+          push: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+          tags: ${{ github.event_name == 'push' && github.ref_type == 'tag' && format('ghcr.io/strangebytesorg/llm-gateway:{0}', github.ref_name) || '' }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=MIT

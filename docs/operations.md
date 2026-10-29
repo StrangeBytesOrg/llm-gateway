@@ -25,6 +25,29 @@ The container runs as a non-root user. Ensure bind-mounted configuration is read
 
 SIGTERM stops admission and attempts to drain within `shutdown_seconds`, then closes remaining connections and allows up to 12 additional seconds for inference accounting finalization. Provider requests have an independent maximum duration and stream idle timer. Unfinished records are recovered after restart; stale records whose finalization failed are also recovered by the reconciliation worker. Inference is never dispatched unless its admission record was committed.
 
+## Container releases
+
+Push a version tag to run checks and publish the Linux amd64 image:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Pull by version tag:
+
+```sh
+docker pull ghcr.io/strangebytesorg/llm-gateway:v0.1.0
+```
+
+Deploying with a SHA-256 digest is strongly recommended:
+
+```sh
+docker pull ghcr.io/strangebytesorg/llm-gateway@sha256:REPLACE_WITH_RELEASE_DIGEST
+```
+
+Keep the previous digest for rollback, and stop the current instance gracefully before replacing it. Roll back only to a version compatible with the database.
+
 ## Monitoring
 
 `GET /health/live` on the inference port is public. `GET /health/ready` and `GET /metrics` on the admin port require the admin credential. Readiness checks database connectivity and admission state; it does not test upstream credentials or provider health.

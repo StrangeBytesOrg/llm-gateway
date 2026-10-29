@@ -149,8 +149,18 @@ The gateway sends no automatic inference retries and implements no route fallbac
 
 ## Checks
 
+CI runs formatting, vet, race tests, a build, Go vulnerability checks, and a
+Docker image build on pushes to `main`, pull requests, and weekly.
+Dependabot groups weekly updates into
+one PR per ecosystem (Go, Docker, and GitHub Actions).
+
+Pushing a tag beginning with `v` publishes a checked Linux amd64 image to
+`ghcr.io/strangebytesorg/llm-gateway` with the same tag.
+See [container releases](docs/operations.md#container-releases) for deployment.
+
 ```sh
 make check
+make vuln
 go test ./internal/gateway -run '^$' -fuzz '^FuzzSSE$' -fuzztime=10s
 go test ./internal/gateway -run '^$' -fuzz '^FuzzMoney$' -fuzztime=10s
 go test ./internal/gateway -run '^$' -fuzz '^FuzzUsage$' -fuzztime=10s
@@ -167,7 +177,7 @@ go test ./internal/gateway -run '^TestLoad$' -count=1 -v -timeout=5m \
   -args -gateway-load -gateway-load-dir="$PWD/data/load-tests"
 ```
 
-The test creates and removes its own subdirectory, leaving other files in the parent untouched. Recorded local results and their limits are in [validation](docs/validation.md).
+The test creates and removes its own subdirectory, leaving other files in the parent untouched.
 
 ## License
 
