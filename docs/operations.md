@@ -63,7 +63,7 @@ Pending spending is not reserved. An attacker with a valid key can overspend thr
 The service produces a consistent `VACUUM INTO` snapshot in `backup_directory` every `backup_interval_seconds` (default 24 hours) and verifies SQLite integrity and foreign keys. It also supports an authenticated manual backup:
 
 ```sh
-curl -sS -X POST http://127.0.0.1:8081/admin/v1/backups \
+curl -sS -X POST http://127.0.0.1:42081/admin/v1/backups \
   -H "Authorization: Bearer $GATEWAY_ADMIN_TOKEN"
 ```
 

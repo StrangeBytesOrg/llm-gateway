@@ -16,7 +16,7 @@ go run ./cmd/gateway -config config.yaml
 
 Configuration uses YAML, with defaults applied to omitted optional settings. See the [configuration reference](docs/configuration.md) for every setting, whether it is required, and its default. Unknown fields (except inside model `request_params` settings), duplicate keys, multiple documents, and files larger than 1 MiB are rejected. A [configuration schema](config.schema.json) is available for editor autocomplete and validation. Use `-check` to validate configuration, references, and credentials. Keep token pricing values quoted, such as `input_usd_per_million: "0.15"`.
 
-Inference listens on port 8080; administration binds to loopback port 8081. Put inference behind a TLS reverse proxy before exposing it. Both APIs use bearer authentication; only `/health/live` is public. Do not expose the admin listener to untrusted networks. Credentials are resolved from environment variables at startup/request time, never stored in SQLite. Cors is enabled by default on the inference API.
+Inference listens on port 42080; administration binds to loopback port 42081. Put inference behind a TLS reverse proxy before exposing it. Both APIs use bearer authentication; only `/health/live` is public. Do not expose the admin listener to untrusted networks. Credentials are resolved from environment variables at startup/request time, never stored in SQLite. Cors is enabled by default on the inference API.
 
 Configure aliases in `models`; clients send the alias as `model`. Each alias maps to one provider model. Configuration changes require a restart. The example model is illustrative: confirm availability and any model-specific parameters with your provider before use. The gateway forwards Chat Completions fields, including tools and structured output, while controlling routing, upstream credentials, user identity, and maximum output tokens.
 Responses are rebuilt from an explicit field allowlist and identify the requested gateway model alias and a gateway completion ID. Provider costs and routing metadata remain internal. See the [response contract](docs/responses.md) for supported fields, reasoning, usage, and streaming behavior. Optional `models.<alias>.request_params` settings enforce upstream request fields such as reasoning and sampling parameters.
@@ -25,7 +25,7 @@ OpenRouter provider preferences and plugins use the same `request_params` object
 ## Provision a user and key
 
 ```sh
-curl -sS http://127.0.0.1:8081/admin/v1/users \
+curl -sS http://127.0.0.1:42081/admin/v1/users \
   -H "Authorization: Bearer $GATEWAY_ADMIN_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"id":"your-internal-user-id","budget_usd":"25.00","cadence":"monthly","anchor":"2026-10-15T00:00:00Z"}'
@@ -35,13 +35,13 @@ Creating a user does not create any keys. Create their first key using the same 
 
 ```sh
 curl --fail --silent --show-error -X POST \
-  http://127.0.0.1:8081/admin/v1/users/your-internal-user-id/keys \
+  http://127.0.0.1:42081/admin/v1/users/your-internal-user-id/keys \
   -H "Authorization: Bearer $GATEWAY_ADMIN_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"alias":"your-key-alias"}'
 ```
 
-Save `secret` from this response; it cannot be retrieved later. Supply it as the API key in your existing compatible client and set its base URL to `http://localhost:8080/v1`.
+Save `secret` from this response; it cannot be retrieved later. Supply it as the API key in your existing compatible client and set its base URL to `http://localhost:42080/v1`.
 
 Users have a single immutable `id`. Supply it during creation to use your own IDs, or omit it to let the gateway generate a `usr_` ID. Lookup, updates, usage, key management, and stored relationships all use that same ID. User routes use `/admin/v1/users/{user_id}`; URL-encode user IDs and key aliases individually as path segments. Supplied IDs are matched exactly and case-sensitively, must be nonblank and at most 256 bytes, and cannot be changed after creation.
 
@@ -64,7 +64,7 @@ Set `model_access_group` when creating a user, or omit it to store the configure
 
 ```sh
 curl --fail --silent --show-error -X PATCH \
-  http://127.0.0.1:8081/admin/v1/users/your-internal-user-id \
+  http://127.0.0.1:42081/admin/v1/users/your-internal-user-id \
   -H "Authorization: Bearer $GATEWAY_ADMIN_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"model_access_group":"premium","budget_usd":"100.00"}'
@@ -84,7 +84,7 @@ To replace an existing key's secret, use the rotate endpoint. This same call can
 
 ```sh
 curl --fail --silent --show-error -X POST \
-  http://127.0.0.1:8081/admin/v1/users/your-internal-user-id/keys/your-key-alias/rotate \
+  http://127.0.0.1:42081/admin/v1/users/your-internal-user-id/keys/your-key-alias/rotate \
   -H "Authorization: Bearer $GATEWAY_ADMIN_TOKEN"
 ```
 
@@ -94,7 +94,7 @@ Fetch current key metadata by alias:
 
 ```sh
 curl --fail --silent --show-error \
-  http://127.0.0.1:8081/admin/v1/users/your-internal-user-id/keys/your-key-alias \
+  http://127.0.0.1:42081/admin/v1/users/your-internal-user-id/keys/your-key-alias \
   -H "Authorization: Bearer $GATEWAY_ADMIN_TOKEN"
 ```
 
@@ -102,7 +102,7 @@ Revoke a key by alias with one idempotent call:
 
 ```sh
 curl --fail --silent --show-error -X DELETE \
-  http://127.0.0.1:8081/admin/v1/users/your-internal-user-id/keys/your-key-alias \
+  http://127.0.0.1:42081/admin/v1/users/your-internal-user-id/keys/your-key-alias \
   -H "Authorization: Bearer $GATEWAY_ADMIN_TOKEN"
 ```
 
@@ -118,14 +118,13 @@ The first release initializes the complete SQLite schema at version 1 using `001
 
 ## API documentation
 
-The generated admin OpenAPI contract describes user management, key expiration/revocation, usage, request history, manual cost resolution, audit history, backups, readiness, and metrics. Huma generates it from registered handlers and Go types and serves the current specification at `/openapi.json` and `/openapi.yaml` on the admin listener, behind admin authentication. Fetch the JSON specification with:
+The generated admin OpenAPI contract describes user management, key expiration/revocation, usage, request history, manual cost resolution, audit history, backups, readiness, and metrics. Huma generates it from registered handlers and Go types and serves the current specification at `/openapi.json` and `/openapi.yaml` on the admin listener. GET and HEAD requests to these two URLs require no authentication. Fetch the JSON specification with:
 
 ```sh
-curl --fail --silent --show-error http://127.0.0.1:8081/openapi.json \
-  -H "Authorization: Bearer $GATEWAY_ADMIN_TOKEN"
+curl --fail --silent --show-error http://127.0.0.1:42081/openapi.json
 ```
 
-Use `/openapi.yaml` instead for YAML. The running admin server also serves an interactive documentation UI at `http://127.0.0.1:8081/docs`. Browser access requires an authenticated local proxy or header-injection setup. Administrative validation errors use Huma's RFC 9457 problem details (`application/problem+json`); domain errors put their stable code in `detail`. Inference retains its [compatible error envelope and contract](docs/inference.openapi.yaml).
+Use `/openapi.yaml` instead for YAML. The running admin server also serves an interactive documentation UI at `http://127.0.0.1:42081/docs`. Browser access requires an authenticated local proxy or header-injection setup. Administrative validation errors use Huma's RFC 9457 problem details (`application/problem+json`); domain errors put their stable code in `detail`. Inference retains its [compatible error envelope and contract](docs/inference.openapi.yaml).
 
 List APIs accept `limit` (1–500, default 100) and `after`; follow `next_cursor` until empty. Treat cursors as opaque values. Usage summaries include the latest 100 periods; request history provides pagination across all retained requests. Filter request history with `/admin/v1/requests?user_id=your-internal-user-id` (URL-encode the query value).
 
@@ -135,7 +134,7 @@ Read the user's `budget_policy_id` from creation or GET, then replace the comple
 
 ```sh
 curl --fail --silent --show-error -X POST \
-  http://127.0.0.1:8081/admin/v1/users/your-internal-user-id/budget-transitions \
+  http://127.0.0.1:42081/admin/v1/users/your-internal-user-id/budget-transitions \
   -H "Authorization: Bearer $GATEWAY_ADMIN_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"transition_id":"subscription-event-123","expected_policy_id":"pol_from_user_response","budget_usd":"100.00","cadence":"monthly","anchor":"2026-10-29T00:00:00Z","model_access_group":"premium","enabled":true}'

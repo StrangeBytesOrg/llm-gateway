@@ -10,6 +10,6 @@ COPY --from=build /gateway /gateway
 COPY --from=build --chown=nonroot:nonroot /data /data
 WORKDIR /
 USER nonroot:nonroot
-EXPOSE 8080
+EXPOSE 42080
 ENTRYPOINT ["/gateway"]
 CMD ["-config", "/etc/gateway/config.yaml"]

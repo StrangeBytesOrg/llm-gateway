@@ -65,7 +65,7 @@ default_model_access_group: free
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Listen != ":8080" || c.MaxBodyBytes != 4<<20 || c.MaxOutputTokens != 0 || c.UserConcurrency != 4 || c.RequestTimeoutSeconds != 300 {
+	if c.Listen != ":42080" || c.MaxBodyBytes != 4<<20 || c.MaxOutputTokens != 0 || c.UserConcurrency != 4 || c.RequestTimeoutSeconds != 300 {
 		t.Fatalf("defaults were not preserved: %+v", c)
 	}
 	if c.Models["test.model"].InputUSDPerMillion != "0.123456789123" || c.Models["test.model"].OutputUSDPerMillion != "2.50" {

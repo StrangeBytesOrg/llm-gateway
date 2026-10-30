@@ -7,12 +7,12 @@
     "listen": {
       "type": "string",
       "description": "Inference API listen address.",
-      "default": ":8080"
+      "default": ":42080"
     },
     "admin_listen": {
       "type": "string",
       "description": "Administration listen address. Keep this on loopback or a private network.",
-      "default": "127.0.0.1:8081"
+      "default": "127.0.0.1:42081"
     },
     "database": {
       "type": "string",

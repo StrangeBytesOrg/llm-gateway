@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=./config.schema.json
 
-listen: ":8080"
-admin_listen: 127.0.0.1:8081
+listen: ":42080"
+admin_listen: 127.0.0.1:42081
 database: data/gateway.db
 backup_directory: data/backups
 backup_interval_seconds: 86400

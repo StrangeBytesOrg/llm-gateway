@@ -143,7 +143,7 @@ func (g *Gateway) newAdminAPI() (http.Handler, huma.API) {
 	mux := http.NewServeMux()
 	c := huma.DefaultConfig("LLM Gateway Admin API", "0.1.0")
 	// Preserve response shapes; generated schemas do not need to add $schema to
-	// every response. The generated contract is protected by the same admin auth.
+	// every response. The generated contract is publicly readable.
 	c.CreateHooks = nil
 	c.RejectUnknownQueryParameters = true
 	c.Info.Description = "Internal provisioning and auditable USD cost accounting. Users have a single immutable id, optionally supplied at creation or generated when omitted. User-specific routes and user_id fields use that same ID. Key routes identify keys by alias, scoped to the user. Amounts are decimal strings; *_unix timestamps are Unix seconds. Validation errors use RFC 9457 problem details."
@@ -182,6 +182,10 @@ func (g *Gateway) newAdminAPI() (http.Handler, huma.API) {
 	handler := g.recover(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		if (r.Method == http.MethodGet || r.Method == http.MethodHead) && (r.URL.Path == "/openapi.json" || r.URL.Path == "/openapi.yaml") {
+			mux.ServeHTTP(w, r)
+			return
+		}
 		token := bearer(r)
 		hash := sha256.Sum256([]byte(token))
 		if token == "" || subtle.ConstantTimeCompare(hash[:], g.adminHash[:]) != 1 {

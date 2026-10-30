@@ -72,7 +72,7 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, err
 	}
 	defer f.Close()
-	c := Config{Listen: ":8080", AdminListen: "127.0.0.1:8081", Database: "data/gateway.db", BackupDirectory: "data/backups", BackupIntervalSeconds: 86400, AdminTokenEnv: "GATEWAY_ADMIN_TOKEN", MaxBodyBytes: 4 << 20, MaxResponseBytes: 16 << 20, GlobalConcurrency: 100, UserConcurrency: 4, UserRequestsPerMinute: 60, RequestTimeoutSeconds: 300, HeaderTimeoutSeconds: 60, StreamIdleSeconds: 60, ShutdownSeconds: 30, ReconcileMaxAttempts: 12}
+	c := Config{Listen: ":42080", AdminListen: "127.0.0.1:42081", Database: "data/gateway.db", BackupDirectory: "data/backups", BackupIntervalSeconds: 86400, AdminTokenEnv: "GATEWAY_ADMIN_TOKEN", MaxBodyBytes: 4 << 20, MaxResponseBytes: 16 << 20, GlobalConcurrency: 100, UserConcurrency: 4, UserRequestsPerMinute: 60, RequestTimeoutSeconds: 300, HeaderTimeoutSeconds: 60, StreamIdleSeconds: 60, ShutdownSeconds: 30, ReconcileMaxAttempts: 12}
 	const maxConfigBytes = 1 << 20
 	data, err := io.ReadAll(io.LimitReader(f, maxConfigBytes+1))
 	if err != nil {

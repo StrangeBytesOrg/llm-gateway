@@ -34,14 +34,24 @@ func TestAdminGeneratedContract(t *testing.T) {
 func TestHumaValidationAndAdminWorkflow(t *testing.T) {
 	g, key, admin := fixture(t, func(w http.ResponseWriter, r *http.Request) { t.Error("admin request reached upstream") })
 	h := g.AdminHandler()
-	for _, path := range []string{"/openapi.json", "/openapi.yaml", "/docs", "/schemas/User.json"} {
-		if w := call(h, "GET", path, key, ""); w.Code != 401 {
-			t.Fatalf("unprotected admin documentation %s: %d", path, w.Code)
+	for _, path := range []string{"/docs", "/schemas/User.json", "/admin/v1/users", "/metrics", "/health/ready", "/openapi.json/", "/openapi.yaml/"} {
+		for _, token := range []string{"", key} {
+			if w := call(h, "GET", path, token, ""); w.Code != 401 {
+				t.Fatalf("unprotected admin route %s: %d", path, w.Code)
+			}
 		}
 	}
 	for _, path := range []string{"/openapi.json", "/openapi.yaml"} {
-		if w := call(h, "GET", path, admin, ""); w.Code != 200 || !strings.Contains(w.Body.String(), "createUser") {
-			t.Fatalf("contract %s: %d %s", path, w.Code, w.Body)
+		for _, token := range []string{"", key, admin} {
+			if w := call(h, "GET", path, token, ""); w.Code != 200 || !strings.Contains(w.Body.String(), "createUser") {
+				t.Fatalf("contract %s: %d %s", path, w.Code, w.Body)
+			}
+			if w := call(h, "HEAD", path, token, ""); w.Code != 200 {
+				t.Fatalf("contract HEAD %s: %d", path, w.Code)
+			}
+		}
+		if w := call(h, "POST", path, "", ""); w.Code != 401 {
+			t.Fatalf("unprotected contract POST %s: %d", path, w.Code)
 		}
 	}
 	for _, tc := range []struct{ method, path, body string }{

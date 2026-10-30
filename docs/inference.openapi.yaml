@@ -6,7 +6,7 @@ info:
     Inference uses virtual keys. The separate Huma-generated administrative API
     serves its generated specification at /openapi.json and /openapi.yaml on the admin listener.
 servers:
-  - url: http://localhost:8080
+  - url: http://localhost:42080
 security:
   - virtualKey: []
 paths:

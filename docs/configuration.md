@@ -28,8 +28,8 @@ containing the configuration file. Configuration changes require a restart.
 
 | Field                     | Type    | Required in YAML? | Default                 | Description and constraints                                                                                                       |
 | ------------------------- | ------- | ----------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `listen`                  | string  | No                | `":8080"`               | Inference API TCP listen address. Must be nonempty and different from `admin_listen`.                                             |
-| `admin_listen`            | string  | No                | `"127.0.0.1:8081"`      | Admin API TCP listen address. Must be nonempty and different from `listen`. Keep administration on loopback or a private network. |
+| `listen`                  | string  | No                | `":42080"`               | Inference API TCP listen address. Must be nonempty and different from `admin_listen`.                                             |
+| `admin_listen`            | string  | No                | `"127.0.0.1:42081"`      | Admin API TCP listen address. Must be nonempty and different from `listen`. Keep administration on loopback or a private network. |
 | `database`                | string  | No                | `"data/gateway.db"`     | SQLite database path; must be nonempty. Run one gateway process per database.                                                     |
 | `backup_directory`        | string  | No                | `"data/backups"`        | Directory for automatic and manual database backups; must be nonempty.                                                            |
 | `backup_interval_seconds` | integer | No                | `86400` (24 hours)      | Interval between automatic backups, from `1` to `86400` seconds inclusive.                                                        |
