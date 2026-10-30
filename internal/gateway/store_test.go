@@ -139,8 +139,7 @@ func TestKeyLifecycleAndBudgetUpdate(t *testing.T) {
 	if _, err := s.Admit(ctx, key, "alias", testRoute(), Provider{Accounting: "openrouter"}, time.Now(), testAccessConfig()); !errors.Is(err, ErrBudget) {
 		t.Fatal(err)
 	}
-	amount := USDScale
-	if _, err := s.UpdateUser(ctx, u.ID, nil, &amount, nil); err != nil {
+	if _, err := s.TransitionBudget(ctx, u.ID, BudgetTransition{TransitionID: "activate", ExpectedPolicyID: u.PolicyID, BudgetUSD: "1", Cadence: u.Cadence, Anchor: time.Unix(u.Anchor, 0)}, testAccessConfig()); err != nil {
 		t.Fatal(err)
 	}
 	p, err := s.Authenticate(ctx, key)

@@ -60,7 +60,7 @@ default_model_access_group: free
 
 Every listed alias must exist in `models`. Group IDs are case-sensitive lowercase slugs, and containing up to 64 letters, digits, or hyphens. Unknown aliases, duplicate aliases within a group, missing model arrays, invalid group IDs, and undefined defaults fail configuration validation. Lists are explicit: there is no inheritance, wildcard, or implicit access when a new model route is added. An empty array grants no model access. The `default` model alias, if configured, needs explicit inclusion like any other alias.
 
-Set `model_access_group` when creating a user, or omit it to store the configured default. Changing `default_model_access_group` affects future users only. Update a user's group and budget together through the existing user endpoint:
+Set `model_access_group` when creating a user, or omit it to store the configured default. Changing `default_model_access_group` affects future users only. Change model access and budget together through PATCH without resetting spending:
 
 ```sh
 curl --fail --silent --show-error -X PATCH \
@@ -72,9 +72,9 @@ curl --fail --silent --show-error -X PATCH \
 
 The group must be defined in configuration. Empty, null, and unknown assignments are rejected; omitting the field on updates preserves the current assignment. User responses include `model_access_group`. Subscription integrations choose the user's group and budget independently; the gateway does not map billing plans.
 
-All existing keys use the user's current assignment. Group and budget changes commit atomically. Admission checks access within the same transaction as authentication and budget enforcement. Requests admitted after a downgrade commits use the new assignment; already admitted requests may finish and settle. Unknown or inaccessible aliases return `403 model_not_allowed` without an upstream call or accounting request. `GET /v1/models` lists only the user's permitted aliases, independently of budget exhaustion.
+All existing keys use the user's current assignment. PATCH and subscription transitions can change group and budget atomically as described below. Admission checks access within the same transaction as authentication and budget enforcement. Requests admitted after a downgrade commits use the new assignment; already admitted requests may finish and settle. Unknown or inaccessible aliases return `403 model_not_allowed` without an upstream call or accounting request. `GET /v1/models` lists only the user's permitted aliases, independently of budget exhaustion.
 
-Group definitions and routes require a restart to change; user assignments take effect immediately. Startup and readiness validate stored assignments against configured groups, so users must be reassigned before removing or renaming a group. Missing groups never grant fallback access. Assignment changes are audited with the previous and resulting group; each admitted request stores its admission-time group. Retain versioned configuration to reconstruct historical group membership.
+Group definitions and routes require a restart to change; user assignments take effect immediately. Startup and readiness validate stored assignments against configured groups, so users must be reassigned before removing or renaming a group. Missing groups never grant fallback access. Subscription transitions audit the previous and resulting group; PATCH changes create no audit history. Each admitted request stores its admission-time group. Retain versioned configuration to reconstruct historical group membership.
 
 ## Key aliases
 
@@ -129,13 +129,49 @@ Use `/openapi.yaml` instead for YAML. The running admin server also serves an in
 
 List APIs accept `limit` (1–500, default 100) and `after`; follow `next_cursor` until empty. Treat cursors as opaque values. Usage summaries include the latest 100 periods; request history provides pagination across all retained requests. Filter request history with `/admin/v1/requests?user_id=your-internal-user-id` (URL-encode the query value).
 
+## Subscription transitions
+
+Read the user's `budget_policy_id` from creation or GET, then replace the complete policy:
+
+```sh
+curl --fail --silent --show-error -X POST \
+  http://127.0.0.1:8081/admin/v1/users/your-internal-user-id/budget-transitions \
+  -H "Authorization: Bearer $GATEWAY_ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"transition_id":"subscription-event-123","expected_policy_id":"pol_from_user_response","budget_usd":"100.00","cadence":"monthly","anchor":"2026-10-29T00:00:00Z","model_access_group":"premium","enabled":true}'
+```
+
+Every successful transition activates a new policy immediately and resets its spending, even if all policy values match the previous version. Choose an anchor at the subscription start to align renewal. A future anchor immediately blocks inference until that date; this API does not schedule a future policy switch. Downgrades and cancellations can assign a free policy, a zero budget, or disable the user. To cancel at a future billing boundary, the service submits the transition at that time. The gateway does not prorate allowances or interpret billing-provider events.
+
+`transition_id` is unique per user. Persist the ID and complete submitted parameters in your subscription integration. Retrying with the same ID and parameters returns the original successful user snapshot, including its original policy ID, without another reset or audit entry, even after restart or later transitions. JSON whitespace and field order do not matter; preserve decimal strings, timestamp representation, and optional field values. Reusing the ID with different parameters returns `409 transition_conflict`. A replay response is historical; GET the user for current state.
+
+`expected_policy_id` must match the active policy for a new transition; otherwise the gateway returns `409 stale_budget_policy` with no changes. Concurrent transitions based on the same policy permit one winner. The service must serialize or reconcile subscription events against authoritative billing state. This precondition detects stale observations; it cannot infer provider event ordering. Do not automatically replace the expected ID and retry an old event, because that could restore an obsolete plan. Duplicate delivery and response loss should retry the original payload.
+
+Policy creation, user activation, optional model access and enablement changes, the retry result, and the `budget.transition` audit entry commit in one transaction. Omitted optional fields preserve their current values. Existing requests retain their admission period and settle or receive corrections against that original allowance. Old spending never consumes the new allowance. Policy identities, recurrence schedules, and period identities are protected by database constraints and immutability triggers. The current policy amount can be edited in place through PATCH.
+
+`GET /admin/v1/users/{user_id}/budget-policies` lists retained policies with normal `limit`/`after` pagination in ID order. Users and policy definitions expose `budget_allowance_id`. Usage periods expose `id` and `budget_allowance_id`; request history exposes `period_id`, `budget_allowance_id`, and the `budget_policy_id` active at admission. PATCH preserves these identities and edits the current policy amount directly; retained policy data is not a history of administrative budget edits. Period rows are created on successful admission, so a current usage period can have an empty ID before its first admitted request. Usage reads take a consistent database snapshot and resolve the current allowance independently of the 100-period history limit.
+
+## Administrative user updates
+
+Use `PATCH /admin/v1/users/{user_id}` to update any combination of the recurring budget amount, model access group, and enablement in place:
+
+```json
+{
+  "budget_usd": "9.00",
+  "model_access_group": "basic",
+  "enabled": true
+}
+```
+
+Omitted fields preserve their current values. Null, empty, malformed, and unknown group assignments are rejected. Amounts must be nonnegative USD strings. All supplied changes commit atomically. PATCH preserves the anchor, cadence, policy ID, allowance ID, period IDs, and spending. It creates no policy revision, audit entry, or retry record and requires no operation ID, reason, or expected version. It does not check whether the user has changed since the caller last read it; later updates replace the supplied fields.
+
 ## Accounting and budgets
 
-- Each user has one weekly or monthly policy. All their keys share the budget. Disabled users and expired/revoked keys cannot admit new inference requests; active requests may finish.
+- Each user has one active weekly or monthly policy; transitions retain previous policies and create fresh allowances. All their keys share the budget. Disabled users and expired/revoked keys cannot admit new inference requests; active requests may finish.
 - A UTC anchor defines renewal boundaries. Weekly means seven days. Monthly preserves the original date/time, clamping to month-end without drifting: January 31 → February 28 → March 31. Fractional seconds in anchors are truncated. Requests before the anchor are rejected.
 - Periods include their start and exclude their end. Charge a request to its admission period, including late settlements. Renewal is calculated on admission; it does not depend on a reset scheduler. Unused budget does not roll over.
 - Admission checks settled spending. There are no fund reservations: concurrent or unresolved requests can exceed the budget. Once known spending reaches the limit, new requests receive 402. Limits default to four active calls and 60 requests/minute per user, with 100 globally active inference requests.
-- Budget amount changes take effect immediately. Anchor and cadence cannot be changed in v1. A zero budget blocks inference. Budgets and model access are assigned to users; all their keys share the current policy.
+- Subscription transitions replace the complete policy and start a fresh allowance. PATCH updates the amount, model access, and/or enablement in place while retaining the allowance and its spending. A zero budget blocks inference. All keys share the current policy. Period IDs are permanent; identical timestamps in different allowances never share spending.
 - OpenRouter `usage.cost` is authoritative; interrupted requests are reconciled through `/generation` when a generation ID was captured. Persisted usage can also recover a failed settlement without another upstream call. Provider endpoints, credential environment-variable references, accounting modes, and configured token rates are snapshotted at admission. Keep referenced credentials available until pending requests are resolved. Cancellation does not guarantee that provider billing stops.
 - Cost uses integer nano-USD (nine decimal places), rounded once to nearest with ties up. API amounts are decimal strings; original reported cost and usage metadata are retained. Very small charges below half a nano-dollar round to zero.
 - Inference lifecycle and accounting status are independent. Accounting is `pending`, `settled`, or `unresolved`. Automatic settlement is idempotent. Manual resolution specifies a replacement **total** and reason; the ledger receives only the difference and the audit log records the action.

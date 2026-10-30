@@ -75,7 +75,7 @@ type CreateUserInput struct {
 		ID               *string       `json:"id,omitempty" minLength:"1" maxLength:"256" doc:"Optional immutable user ID. Omit to generate one; supplied IDs are used exactly. Duplicate IDs return 409."`
 		BudgetUSD        string        `json:"budget_usd" minLength:"1" maxLength:"100" doc:"Nonnegative USD, rounded to nano-USD. Zero blocks inference."`
 		Cadence          string        `json:"cadence" enum:"weekly,monthly"`
-		Anchor           time.Time     `json:"anchor" doc:"Renewal anchor, normalized to UTC and truncated to whole seconds. Cadence and anchor are immutable."`
+		Anchor           time.Time     `json:"anchor" doc:"Renewal anchor, normalized to UTC and truncated to whole seconds. Change the schedule through budget-transitions."`
 	}
 }
 type UpdateUserInput struct {
@@ -83,9 +83,14 @@ type UpdateUserInput struct {
 	Body struct {
 		ModelAccessGroup optionalGroup `json:"model_access_group,omitempty" doc:"Replaces the user group immediately for all keys. Omit to preserve the current assignment."`
 		Enabled          *bool         `json:"enabled,omitempty"`
-		BudgetUSD        *string       `json:"budget_usd,omitempty" minLength:"1" maxLength:"100" doc:"Applies immediately, including to the current period."`
+		BudgetUSD        *string       `json:"budget_usd,omitempty" minLength:"1" maxLength:"100" doc:"Update the current recurring limit in place, preserving schedule and spending. No policy revision or audit record is created."`
 	}
 }
+type BudgetTransitionInput struct {
+	UserInput
+	Body BudgetTransition
+}
+
 type CreateKeyInput struct {
 	UserInput
 	Body struct {
@@ -148,7 +153,9 @@ func (g *Gateway) newAdminAPI() (http.Handler, huma.API) {
 	huma.Register(api, adminOperation("POST", "/admin/v1/users", "createUser", "Create a user with an optional ID and recurring budget", 201), g.createUser)
 	huma.Register(api, adminOperation("GET", "/admin/v1/users", "listUsers", "List users in ID order", 200), g.listUsers)
 	huma.Register(api, adminOperation("GET", "/admin/v1/users/{user_id}", "getUser", "Get a user policy by user ID", 200), g.getUser)
-	huma.Register(api, adminOperation("PATCH", "/admin/v1/users/{user_id}", "updateUser", "Enable a user or change their budget by user ID", 200), g.updateUser)
+	huma.Register(api, adminOperation("PATCH", "/admin/v1/users/{user_id}", "updateUser", "Update budget, enablement, and model access in place without resetting spending", 200), g.updateUser)
+	huma.Register(api, adminOperation("POST", "/admin/v1/users/{user_id}/budget-transitions", "transitionBudget", "Atomically replace the budget policy and reset the allowance; retry-safe by transition ID", 200), g.transitionBudget)
+	huma.Register(api, adminOperation("GET", "/admin/v1/users/{user_id}/budget-policies", "listBudgetPolicies", "List retained budget policies in ID order", 200), g.listBudgetPolicies)
 	huma.Register(api, adminOperation("GET", "/admin/v1/users/{user_id}/usage", "userUsage", "Get spending and accounting backlog by user ID", 200), g.summary)
 	huma.Register(api, adminOperation("POST", "/admin/v1/users/{user_id}/keys", "createKey", "Create a key with an optional caller-supplied alias; secret is returned once", 201), g.createKey)
 	listKeysOperation := adminOperation("GET", "/admin/v1/users/{user_id}/keys", "listKeys", "List current key metadata without secrets or hashes", 200)
@@ -203,6 +210,12 @@ func (g *Gateway) adminError(err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return huma.NewError(404, "not_found")
+	case errors.Is(err, ErrInvalidPolicy):
+		return huma.NewError(400, "invalid_budget_policy")
+	case errors.Is(err, ErrStalePolicy):
+		return huma.NewError(409, "stale_budget_policy")
+	case errors.Is(err, ErrTransitionConflict):
+		return huma.NewError(409, "transition_conflict")
 	case errors.Is(err, ErrConflict):
 		return huma.NewError(409, "conflict")
 	case errors.Is(err, ErrInvalidGroup):
@@ -266,6 +279,7 @@ func (g *Gateway) updateUser(ctx context.Context, in *UpdateUserInput) (*APIOutp
 		}
 		budget = &n
 	}
+
 	var group *string
 	if in.Body.ModelAccessGroup.Set {
 		value := in.Body.ModelAccessGroup.Value
@@ -453,4 +467,19 @@ func (g *Gateway) ready(ctx context.Context, in *struct{}) (*APIOutput[StatusRes
 		return nil, g.adminError(err)
 	}
 	return output(StatusResult{Status: "ready"}), nil
+}
+
+func (g *Gateway) transitionBudget(ctx context.Context, in *BudgetTransitionInput) (*APIOutput[User], error) {
+	u, err := g.Store.TransitionBudget(ctx, in.UserID, in.Body, g.Config)
+	if err != nil {
+		return nil, g.adminError(err)
+	}
+	return output(u), nil
+}
+func (g *Gateway) listBudgetPolicies(ctx context.Context, in *UserPageInput) (*APIOutput[Page[BudgetPolicy]], error) {
+	data, err := g.Store.BudgetPolicies(ctx, in.UserID, in.After, in.Limit)
+	if err != nil {
+		return nil, g.adminError(err)
+	}
+	return paged(data, in.Limit, func(p BudgetPolicy) string { return p.ID }), nil
 }

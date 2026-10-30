@@ -101,9 +101,9 @@ func TestAdminUserIDRecoveryAndWorkflow(t *testing.T) {
 	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &history) != nil || len(history.Data) != 1 || history.Data[0].UserID != u.ID {
 		t.Fatalf("history by user ID: %d %s", w.Code, w.Body)
 	}
-	w = call(h, "PATCH", path, admin, `{"enabled":false,"budget_usd":"25"}`)
+	w = call(h, "PATCH", path, admin, `{"enabled":false}`)
 	var updated User
-	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &updated) != nil || updated.ID != u.ID || updated.Enabled || updated.BudgetUSD != "25.000000000" {
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &updated) != nil || updated.ID != u.ID || updated.Enabled || updated.BudgetUSD != "10.000000000" {
 		t.Fatalf("update by user ID: %d %s", w.Code, w.Body)
 	}
 }
@@ -124,7 +124,7 @@ func TestAdminGeneratedUserID(t *testing.T) {
 		if w := call(h, "GET", path, admin, ""); w.Code != 200 {
 			t.Fatal(w.Body)
 		}
-		if w := call(h, "PATCH", path, admin, `{"budget_usd":"7"}`); w.Code != 200 {
+		if w := call(h, "PATCH", path, admin, `{"enabled":true}`); w.Code != 200 {
 			t.Fatal(w.Body)
 		}
 		if w := call(h, "GET", path+"/usage", admin, ""); w.Code != 200 {

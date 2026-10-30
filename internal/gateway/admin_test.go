@@ -20,7 +20,7 @@ func TestAdminGeneratedContract(t *testing.T) {
 	if err = json.Unmarshal(generated, &spec); err != nil {
 		t.Fatal(err)
 	}
-	if spec.OpenAPI != "3.1.0" || len(spec.Paths) != 15 {
+	if spec.OpenAPI != "3.1.0" || len(spec.Paths) != 17 {
 		t.Fatalf("unexpected contract: %s paths=%d", spec.OpenAPI, len(spec.Paths))
 	}
 	if _, exists := spec.Paths["/v1/chat/completions"]; exists {
@@ -68,7 +68,7 @@ func TestHumaValidationAndAdminWorkflow(t *testing.T) {
 	if u.Anchor != 1735689600 {
 		t.Fatalf("anchor was not truncated to whole seconds: %d", u.Anchor)
 	}
-	w = call(h, "PATCH", "/admin/v1/users/"+u.ID, admin, `{"enabled":false,"budget_usd":"3"}`)
+	w = call(h, "PATCH", "/admin/v1/users/"+u.ID, admin, `{"enabled":false}`)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"enabled":false`) {
 		t.Fatalf("update: %d %s", w.Code, w.Body)
 	}

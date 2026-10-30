@@ -175,7 +175,7 @@ func TestExternalWriterContention(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err = tx.Exec("UPDATE users SET budget=budget"); err != nil {
+	if _, err = tx.Exec("UPDATE users SET enabled=enabled"); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)

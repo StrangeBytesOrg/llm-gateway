@@ -109,29 +109,6 @@ func TestModelAccessAcrossKeys(t *testing.T) {
 	if user.ModelAccessGroup != "none" {
 		t.Fatal(user)
 	}
-	entries, err := g.Store.AuditLog(ctx, 0, 100)
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, entry := range entries {
-		if entry.Action != "user.update" {
-			continue
-		}
-		var detail struct {
-			ModelAccessGroup    string `json:"model_access_group"`
-			OldModelAccessGroup string `json:"old_model_access_group"`
-		}
-		if err := json.Unmarshal(entry.Detail, &detail); err != nil {
-			t.Fatal(err)
-		}
-		if detail.OldModelAccessGroup == "free" && detail.ModelAccessGroup == "premium" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("group transition missing from audit")
-	}
 	for _, value := range []string{`null`, `""`, `"typo"`} {
 		w := call(ah, "PATCH", path, admin, `{"budget_usd":"99","model_access_group":`+value+`}`)
 		if w.Code < 400 {
