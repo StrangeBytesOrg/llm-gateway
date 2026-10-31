@@ -17,6 +17,8 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 )
 
+const adminAPIVersion = "0.2.0"
+
 // Huma stays at the administrative HTTP boundary. Inference is handled directly
 // by net/http; storage and accounting have no framework dependency.
 type APIOutput[T any] struct{ Body T }
@@ -170,7 +172,7 @@ func adminOperation(method, path, id, summary string, status int) huma.Operation
 
 func (g *Gateway) newAdminAPI() (http.Handler, huma.API) {
 	mux := http.NewServeMux()
-	c := huma.DefaultConfig("LLM Gateway Admin API", "0.1.0")
+	c := huma.DefaultConfig("LLM Gateway Admin API", adminAPIVersion)
 	// Preserve response shapes; generated schemas do not need to add $schema to
 	// every response. The generated contract is publicly readable.
 	c.CreateHooks = nil

@@ -938,7 +938,7 @@
   "info": {
     "description": "Internal provisioning and auditable USD cost accounting. Users have a single immutable id, optionally supplied at creation or generated when omitted. User-specific routes and user_id fields use that same ID. Key routes identify keys by alias, scoped to the user. Amounts are decimal strings; *_unix timestamps are Unix seconds. Authentication accepts the long-lived admin token or a short-lived session token from POST /admin/v1/session. Validation errors use RFC 9457 problem details.",
     "title": "LLM Gateway Admin API",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "openapi": "3.1.0",
   "paths": {
