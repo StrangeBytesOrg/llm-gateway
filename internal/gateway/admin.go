@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/StrangeBytesOrg/llm-gateway/web"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 )
@@ -19,7 +21,7 @@ import (
 // by net/http; storage and accounting have no framework dependency.
 type APIOutput[T any] struct{ Body T }
 type Page[T any] struct {
-	Data       []T    `json:"data"`
+	Data       []T    `json:"data" nullable:"false"`
 	NextCursor string `json:"next_cursor"`
 }
 
@@ -49,6 +51,11 @@ type UserPageInput struct {
 type RequestPageInput struct {
 	RequestInput
 	Pagination
+}
+type AuditInput struct {
+	After string `query:"after" maxLength:"256" doc:"Cursor from the previous page; omit for the first page."`
+	Limit int    `query:"limit" default:"100" minimum:"1" maximum:"500"`
+	Order string `query:"order" enum:"asc,desc" default:"asc" doc:"ID order. Descending returns newest first and treats after as the previous page's last ID."`
 }
 
 // optionalGroup distinguishes omission from explicit null.
@@ -134,6 +141,28 @@ type StatusResult struct {
 type BackupResult struct {
 	Filename string `json:"filename"`
 }
+type CreateSessionInput struct {
+	Body struct {
+		Username string `json:"username" minLength:"1" maxLength:"64"`
+		Password string `json:"password" minLength:"1" maxLength:"256"`
+	}
+}
+type CreateSessionResult struct {
+	Token    string `json:"token" doc:"Bearer token for the admin API and UI."`
+	Expires  int64  `json:"expires_unix"`
+	Username string `json:"username"`
+}
+type SessionInfo struct {
+	Username string `json:"username"`
+	Expires  int64  `json:"expires_unix"`
+	Kind     string `json:"kind" enum:"session,token"`
+}
+type AdminConfig struct {
+	ModelAccessGroups       map[string]ModelAccessGroup `json:"model_access_groups"`
+	DefaultModelAccessGroup string                      `json:"default_model_access_group"`
+	Models                  []string                    `json:"models" nullable:"false"`
+	AdminUsername           string                      `json:"admin_username"`
+}
 
 func adminOperation(method, path, id, summary string, status int) huma.Operation {
 	return huma.Operation{Method: method, Path: path, OperationID: id, Summary: summary, DefaultStatus: status, MaxBodyBytes: 1 << 20, BodyReadTimeout: 5 * time.Second, Errors: []int{400, 401, 404, 409, 422, 503}}
@@ -146,10 +175,18 @@ func (g *Gateway) newAdminAPI() (http.Handler, huma.API) {
 	// every response. The generated contract is publicly readable.
 	c.CreateHooks = nil
 	c.RejectUnknownQueryParameters = true
-	c.Info.Description = "Internal provisioning and auditable USD cost accounting. Users have a single immutable id, optionally supplied at creation or generated when omitted. User-specific routes and user_id fields use that same ID. Key routes identify keys by alias, scoped to the user. Amounts are decimal strings; *_unix timestamps are Unix seconds. Validation errors use RFC 9457 problem details."
-	c.Components.SecuritySchemes = map[string]*huma.SecurityScheme{"adminBearer": {Type: "http", Scheme: "bearer"}}
+	c.Info.Description = "Internal provisioning and auditable USD cost accounting. Users have a single immutable id, optionally supplied at creation or generated when omitted. User-specific routes and user_id fields use that same ID. Key routes identify keys by alias, scoped to the user. Amounts are decimal strings; *_unix timestamps are Unix seconds. Authentication accepts the long-lived admin token or a short-lived session token from POST /admin/v1/session. Validation errors use RFC 9457 problem details."
+	c.Components.SecuritySchemes = map[string]*huma.SecurityScheme{"adminBearer": {Type: "http", Scheme: "bearer", Description: "Admin token or a session token issued by POST /admin/v1/session."}}
 	c.Security = []map[string][]string{{"adminBearer": {}}}
 	api := humago.New(mux, c)
+	createSession := adminOperation("POST", "/admin/v1/session", "createAdminSession", "Authenticate admin credentials and issue a session token", 200)
+	createSession.Security = []map[string][]string{}
+	createSession.Description = "Public endpoint. The returned token is a bearer credential valid for 12 hours and is accepted anywhere the admin token is accepted. Sessions are stored in process memory, so a restart invalidates them. The admin token remains valid independently."
+	huma.Register(api, createSession, g.createAdminSession)
+	huma.Register(api, adminOperation("GET", "/admin/v1/session", "getAdminSession", "Describe the current admin session", 200), g.getAdminSession)
+	huma.Register(api, adminOperation("DELETE", "/admin/v1/session", "deleteAdminSession", "End the current admin session", 204), g.deleteAdminSession)
+	huma.Register(api, adminOperation("GET", "/admin/v1/config", "getAdminConfig", "Get non-secret gateway configuration for administration", 200), g.getAdminConfig)
+	huma.Register(api, adminOperation("GET", "/admin/v1/overview", "getOverview", "Get aggregate user, key, and request counts", 200), g.getOverview)
 	huma.Register(api, adminOperation("POST", "/admin/v1/users", "createUser", "Create a user with an optional ID and recurring budget", 201), g.createUser)
 	huma.Register(api, adminOperation("GET", "/admin/v1/users", "listUsers", "List users in ID order", 200), g.listUsers)
 	huma.Register(api, adminOperation("GET", "/admin/v1/users/{user_id}", "getUser", "Get a user policy by user ID", 200), g.getUser)
@@ -173,28 +210,64 @@ func (g *Gateway) newAdminAPI() (http.Handler, huma.API) {
 	huma.Register(api, adminOperation("GET", "/admin/v1/requests/{request}", "getRequest", "Get inference lifecycle and accounting state", 200), g.getRequest)
 	huma.Register(api, adminOperation("GET", "/admin/v1/requests/{request}/ledger", "requestLedger", "List original charges and signed adjustments", 200), g.ledger)
 	huma.Register(api, adminOperation("POST", "/admin/v1/requests/{request}/resolve", "resolveCost", "Set a finished request's absolute total and audit the adjustment", 200), g.resolve)
-	huma.Register(api, adminOperation("GET", "/admin/v1/audit", "auditLog", "List administrative events in ID order", 200), g.auditLog)
+	auditOperation := adminOperation("GET", "/admin/v1/audit", "auditLog", "List administrative events in ID order", 200)
+	auditOperation.Description = "Defaults to ascending ID order. Set order=desc to return newest events first; the after cursor remains the last ID from the previous page."
+	huma.Register(api, auditOperation, g.auditLog)
 	huma.Register(api, adminOperation("POST", "/admin/v1/backups", "createBackup", "Create and verify a local SQLite snapshot", 201), g.backup)
 	huma.Register(api, adminOperation("GET", "/health/ready", "readiness", "Check database connectivity and admission state", 200), g.ready)
 	mux.HandleFunc("GET /metrics", g.metrics)
 	api.OpenAPI().AddOperation(&huma.Operation{Method: "GET", Path: "/metrics", OperationID: "metrics", Summary: "Prometheus metrics without per-user labels", Responses: map[string]*huma.Response{"200": {Description: "Prometheus exposition", Content: map[string]*huma.MediaType{"text/plain": {Schema: &huma.Schema{Type: "string"}}}}}})
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { writeAdminError(w, 404, "not_found") })
+	ui := web.Handler()
+	notFound := func(w http.ResponseWriter, r *http.Request) { writeAdminError(w, 404, "not_found") }
+	mux.HandleFunc("/admin/", notFound)
+	mux.HandleFunc("/health/", notFound)
+	mux.HandleFunc("/schemas/", notFound)
+	mux.HandleFunc("/openapi.json/", notFound)
+	mux.HandleFunc("/openapi.yaml/", notFound)
+	mux.Handle("/", ui)
 	handler := g.recover(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		if (r.Method == http.MethodGet || r.Method == http.MethodHead) && (r.URL.Path == "/openapi.json" || r.URL.Path == "/openapi.yaml") {
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		if !isAdminAPIPath(r.URL.Path) {
+			ui.ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		if isPublicAdminRequest(r) {
 			mux.ServeHTTP(w, r)
 			return
 		}
 		token := bearer(r)
-		hash := sha256.Sum256([]byte(token))
-		if token == "" || subtle.ConstantTimeCompare(hash[:], g.adminHash[:]) != 1 {
-			writeAdminError(w, 401, "invalid_admin_credential")
-			return
+		if token != "" {
+			hash := sha256.Sum256([]byte(token))
+			if subtle.ConstantTimeCompare(hash[:], g.adminHash[:]) == 1 {
+				mux.ServeHTTP(w, r.WithContext(withAdminAuth(r.Context(), adminAuth{Kind: "token", Username: g.adminUsername})))
+				return
+			}
+			if session, ok := g.sessions.get(token); ok {
+				mux.ServeHTTP(w, r.WithContext(withAdminAuth(r.Context(), adminAuth{Kind: "session", Username: session.Username, Expires: session.Expires, Token: token})))
+				return
+			}
 		}
-		mux.ServeHTTP(w, r)
+		writeAdminError(w, 401, "invalid_admin_credential")
 	}))
 	return handler, api
+}
+
+func isAdminAPIPath(path string) bool {
+	return path == "/metrics" ||
+		strings.HasPrefix(path, "/admin/") ||
+		strings.HasPrefix(path, "/health/") ||
+		strings.HasPrefix(path, "/schemas/") ||
+		path == "/docs" || strings.HasPrefix(path, "/docs/") ||
+		strings.HasPrefix(path, "/openapi.")
+}
+
+func isPublicAdminRequest(r *http.Request) bool {
+	if (r.Method == http.MethodGet || r.Method == http.MethodHead) && (r.URL.Path == "/openapi.json" || r.URL.Path == "/openapi.yaml") {
+		return true
+	}
+	return r.Method == http.MethodPost && r.URL.Path == "/admin/v1/session"
 }
 func (g *Gateway) AdminHandler() http.Handler { handler, _ := g.newAdminAPI(); return handler }
 
@@ -440,12 +513,17 @@ func (g *Gateway) ledger(ctx context.Context, in *RequestPageInput) (*APIOutput[
 	}
 	return paged(data, in.Limit, func(e LedgerEntry) string { return strconv.FormatInt(e.ID, 10) }), nil
 }
-func (g *Gateway) auditLog(ctx context.Context, in *Pagination) (*APIOutput[Page[AuditEntry]], error) {
+func (g *Gateway) auditLog(ctx context.Context, in *AuditInput) (*APIOutput[Page[AuditEntry]], error) {
 	cursor, err := numericCursor(in.After)
 	if err != nil {
 		return nil, err
 	}
-	data, err := g.Store.AuditLog(ctx, cursor, in.Limit)
+	var data []AuditEntry
+	if in.Order == "desc" {
+		data, err = g.Store.AuditLogDesc(ctx, cursor, in.Limit)
+	} else {
+		data, err = g.Store.AuditLog(ctx, cursor, in.Limit)
+	}
 	if err != nil {
 		return nil, g.adminError(err)
 	}
@@ -471,6 +549,61 @@ func (g *Gateway) ready(ctx context.Context, in *struct{}) (*APIOutput[StatusRes
 		return nil, g.adminError(err)
 	}
 	return output(StatusResult{Status: "ready"}), nil
+}
+
+func (g *Gateway) createAdminSession(ctx context.Context, in *CreateSessionInput) (*APIOutput[CreateSessionResult], error) {
+	if g.adminUsername == "" {
+		return nil, huma.NewError(503, "admin_ui_not_configured")
+	}
+	userOK := subtle.ConstantTimeCompare([]byte(in.Body.Username), []byte(g.adminUsername)) == 1
+	passwordHash := sha256.Sum256([]byte(in.Body.Password))
+	passwordOK := subtle.ConstantTimeCompare(passwordHash[:], g.adminPasswordHash[:]) == 1
+	if !userOK || !passwordOK {
+		return nil, huma.NewError(401, "invalid_admin_credential")
+	}
+	token, session := g.sessions.create(g.adminUsername)
+	return output(CreateSessionResult{Token: token, Expires: session.Expires.Unix(), Username: session.Username}), nil
+}
+
+func (g *Gateway) getAdminSession(ctx context.Context, in *struct{}) (*APIOutput[SessionInfo], error) {
+	auth, ok := adminAuthFrom(ctx)
+	if !ok {
+		return nil, huma.NewError(401, "invalid_admin_credential")
+	}
+	var expires int64
+	if !auth.Expires.IsZero() {
+		expires = auth.Expires.Unix()
+	}
+	return output(SessionInfo{Username: auth.Username, Expires: expires, Kind: auth.Kind}), nil
+}
+
+func (g *Gateway) deleteAdminSession(ctx context.Context, in *struct{}) (*struct{}, error) {
+	if auth, ok := adminAuthFrom(ctx); ok && auth.Kind == "session" {
+		g.sessions.delete(auth.Token)
+	}
+	return &struct{}{}, nil
+}
+
+func (g *Gateway) getAdminConfig(ctx context.Context, in *struct{}) (*APIOutput[AdminConfig], error) {
+	models := make([]string, 0, len(g.Config.Models))
+	for name := range g.Config.Models {
+		models = append(models, name)
+	}
+	slices.Sort(models)
+	return output(AdminConfig{
+		ModelAccessGroups:       g.Config.ModelAccessGroups,
+		DefaultModelAccessGroup: g.Config.DefaultModelAccessGroup,
+		Models:                  models,
+		AdminUsername:           g.adminUsername,
+	}), nil
+}
+
+func (g *Gateway) getOverview(ctx context.Context, in *struct{}) (*APIOutput[Overview], error) {
+	o, err := g.Store.Overview(ctx, time.Now())
+	if err != nil {
+		return nil, g.adminError(err)
+	}
+	return output(o), nil
 }
 
 func (g *Gateway) transitionBudget(ctx context.Context, in *BudgetTransitionInput) (*APIOutput[User], error) {

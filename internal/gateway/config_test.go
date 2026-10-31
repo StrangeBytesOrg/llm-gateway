@@ -110,6 +110,61 @@ func TestYAMLConfigRejectsInvalidDocuments(t *testing.T) {
 	}
 }
 
+func TestConfigAdminUICredentials(t *testing.T) {
+	t.Setenv("GATEWAY_ADMIN_TOKEN", strings.Repeat("a", 40))
+	t.Setenv("OPENROUTER_API_KEY", "test")
+	data, err := os.ReadFile("../../config.example.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := strings.Replace(string(data), "admin_token_env: GATEWAY_ADMIN_TOKEN\n", "admin_token_env: GATEWAY_ADMIN_TOKEN\nadmin_username: admin\nadmin_password_env: TEST_ADMIN_PASSWORD\n", 1)
+	cases := []struct {
+		name, password string
+		wantError      bool
+	}{
+		{"valid", "correct horse battery staple", false},
+		{"short", "too short", true},
+		{"surrounding whitespace", " correct horse battery staple ", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("TEST_ADMIN_PASSWORD", tc.password)
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(base), 0600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := LoadConfig(path)
+			if tc.wantError && err == nil {
+				t.Fatal("accepted unusable admin UI password")
+			}
+			if !tc.wantError && err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+	t.Run("missing password variable", func(t *testing.T) {
+		t.Setenv("TEST_ADMIN_PASSWORD", "")
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(path, []byte(base), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadConfig(path); err == nil {
+			t.Fatal("accepted missing admin UI password")
+		}
+	})
+	t.Run("invalid username", func(t *testing.T) {
+		t.Setenv("TEST_ADMIN_PASSWORD", "correct horse battery staple")
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		content := strings.Replace(base, "admin_username: admin", "admin_username: ' admin '", 1)
+		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadConfig(path); err == nil {
+			t.Fatal("accepted admin username with surrounding whitespace")
+		}
+	})
+}
+
 func TestConfigRejectsUnusableAdminToken(t *testing.T) {
 	t.Setenv("GATEWAY_ADMIN_TOKEN", "this is a bad secret but it is a secret")
 	t.Setenv("OPENROUTER_API_KEY", "test")

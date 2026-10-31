@@ -44,7 +44,19 @@ type AuditEntry struct {
 }
 
 func (s *Store) AuditLog(ctx context.Context, after int64, limit int) ([]AuditEntry, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT id,action,target,detail,created FROM audit WHERE id>? ORDER BY id LIMIT ?", after, limit)
+	return s.auditLog(ctx, "WHERE id>? ORDER BY id LIMIT ?", after, limit)
+}
+
+// AuditLogDesc uses the same exclusive cursor for newest-first pagination.
+func (s *Store) AuditLogDesc(ctx context.Context, before int64, limit int) ([]AuditEntry, error) {
+	if before == 0 {
+		return s.auditLog(ctx, "ORDER BY id DESC LIMIT ?", limit)
+	}
+	return s.auditLog(ctx, "WHERE id<? ORDER BY id DESC LIMIT ?", before, limit)
+}
+
+func (s *Store) auditLog(ctx context.Context, clause string, args ...any) ([]AuditEntry, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT id,action,target,detail,created FROM audit "+clause, args...)
 	if err != nil {
 		return nil, err
 	}

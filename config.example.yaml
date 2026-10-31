@@ -7,6 +7,10 @@ backup_directory: data/backups
 backup_interval_seconds: 86400
 # Credentials are read from environment variables, never stored here.
 admin_token_env: GATEWAY_ADMIN_TOKEN
+# Optional browser admin UI login. Set admin_username to enable it.
+# The password is read from admin_password_env and must contain 12 to 256 characters.
+# admin_username: admin
+# admin_password_env: GATEWAY_ADMIN_PASSWORD
 
 providers:
   openrouter:

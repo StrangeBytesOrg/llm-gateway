@@ -36,6 +36,18 @@
       "description": "Environment variable containing the admin bearer credential.",
       "default": "GATEWAY_ADMIN_TOKEN"
     },
+    "admin_username": {
+      "type": "string",
+      "description": "Optional browser admin username. When omitted, browser login is disabled; the admin token still works.",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "admin_password_env": {
+      "type": "string",
+      "description": "Environment variable containing the browser admin password. Required when admin_username is set.",
+      "minLength": 1,
+      "default": "GATEWAY_ADMIN_PASSWORD"
+    },
     "default_model_access_group": {
       "type": "string",
       "description": "Group assigned to newly created users when no group is specified."

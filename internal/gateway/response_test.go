@@ -250,7 +250,7 @@ func BenchmarkResponseNormalization(b *testing.B) {
 		if stream {
 			member = "delta"
 		}
-		data := []byte(fmt.Sprintf(`{"id":"gen_benchmark","choices":[{%q:{"role":"assistant","content":"hello"}}],"usage":{"prompt_tokens":10,"completion_tokens":1,"cost":0.001}}`, member))
+		data := fmt.Appendf(nil, `{"id":"gen_benchmark","choices":[{%q:{"role":"assistant","content":"hello"}}],"usage":{"prompt_tokens":10,"completion_tokens":1,"cost":0.001}}`, member)
 		for _, rebuild := range []bool{false, true} {
 			b.Run(fmt.Sprintf("stream=%t/rebuild=%t", stream, rebuild), func(b *testing.B) {
 				b.ReportAllocs()

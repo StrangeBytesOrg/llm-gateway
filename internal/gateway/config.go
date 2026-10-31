@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -31,7 +32,7 @@ type Route struct {
 }
 
 type ModelAccessGroup struct {
-	Models []string `json:"models" yaml:"models"`
+	Models []string `json:"models" yaml:"models" nullable:"false"`
 }
 
 var groupIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
@@ -51,6 +52,8 @@ type Config struct {
 	BackupDirectory         string                      `json:"backup_directory" yaml:"backup_directory"`
 	BackupIntervalSeconds   int                         `json:"backup_interval_seconds" yaml:"backup_interval_seconds"`
 	AdminTokenEnv           string                      `json:"admin_token_env" yaml:"admin_token_env"`
+	AdminUsername           string                      `json:"admin_username,omitempty" yaml:"admin_username,omitempty"`
+	AdminPasswordEnv        string                      `json:"admin_password_env,omitempty" yaml:"admin_password_env,omitempty"`
 	Providers               map[string]Provider         `json:"providers" yaml:"providers"`
 	Models                  map[string]Route            `json:"models" yaml:"models"`
 	MaxBodyBytes            int64                       `json:"max_body_bytes" yaml:"max_body_bytes"`
@@ -72,7 +75,7 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, err
 	}
 	defer f.Close()
-	c := Config{Listen: ":42080", AdminListen: "127.0.0.1:42081", Database: "data/gateway.db", BackupDirectory: "data/backups", BackupIntervalSeconds: 86400, AdminTokenEnv: "GATEWAY_ADMIN_TOKEN", MaxBodyBytes: 4 << 20, MaxResponseBytes: 16 << 20, GlobalConcurrency: 100, UserConcurrency: 4, UserRequestsPerMinute: 60, RequestTimeoutSeconds: 300, HeaderTimeoutSeconds: 60, StreamIdleSeconds: 60, ShutdownSeconds: 30, ReconcileMaxAttempts: 12}
+	c := Config{Listen: ":42080", AdminListen: "127.0.0.1:42081", Database: "data/gateway.db", BackupDirectory: "data/backups", BackupIntervalSeconds: 86400, AdminTokenEnv: "GATEWAY_ADMIN_TOKEN", AdminPasswordEnv: "GATEWAY_ADMIN_PASSWORD", MaxBodyBytes: 4 << 20, MaxResponseBytes: 16 << 20, GlobalConcurrency: 100, UserConcurrency: 4, UserRequestsPerMinute: 60, RequestTimeoutSeconds: 300, HeaderTimeoutSeconds: 60, StreamIdleSeconds: 60, ShutdownSeconds: 30, ReconcileMaxAttempts: 12}
 	const maxConfigBytes = 1 << 20
 	data, err := io.ReadAll(io.LimitReader(f, maxConfigBytes+1))
 	if err != nil {
@@ -131,6 +134,17 @@ func (c Config) Validate() error {
 	if len(adminToken) < 32 || len(adminToken) > 256 || strings.ContainsAny(adminToken, " \t\r\n") {
 		return errors.New("admin credential must contain 32 to 256 characters without spaces, tabs, or line breaks")
 	}
+	if c.AdminUsername != "" {
+		if !validAdminUsername(c.AdminUsername) {
+			return errors.New("admin_username must be 1 to 64 characters without surrounding whitespace or control characters")
+		}
+		if c.AdminPasswordEnv == "" {
+			return errors.New("admin_password_env is required when admin_username is set")
+		}
+		if !validAdminPassword(os.Getenv(c.AdminPasswordEnv)) {
+			return errors.New("admin UI password must be 12 to 256 characters without surrounding whitespace or control characters")
+		}
+	}
 	if len(c.Providers) == 0 || len(c.Models) == 0 {
 		return errors.New("providers and models are required")
 	}
@@ -178,3 +192,11 @@ func (c Config) Validate() error {
 }
 
 func seconds(n int) time.Duration { return time.Duration(n) * time.Second }
+
+func validAdminUsername(s string) bool {
+	return len(s) >= 1 && len(s) <= 64 && strings.TrimSpace(s) == s && strings.IndexFunc(s, unicode.IsControl) < 0
+}
+
+func validAdminPassword(s string) bool {
+	return len(s) >= 12 && len(s) <= 256 && strings.TrimSpace(s) == s && strings.IndexFunc(s, unicode.IsControl) < 0
+}

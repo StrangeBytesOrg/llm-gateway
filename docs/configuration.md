@@ -34,6 +34,8 @@ containing the configuration file. Configuration changes require a restart.
 | `backup_directory`        | string  | No                | `"data/backups"`        | Directory for automatic and manual database backups; must be nonempty.                                                            |
 | `backup_interval_seconds` | integer | No                | `86400` (24 hours)      | Interval between automatic backups, from `1` to `86400` seconds inclusive.                                                        |
 | `admin_token_env`         | string  | No                | `"GATEWAY_ADMIN_TOKEN"` | Name of the environment variable containing the admin bearer credential. Its value is required even when this field is omitted.   |
+| `admin_username`          | string  | No                | None                    | Optional browser admin username, 1–64 characters. When omitted, UI login is disabled; the admin token still works. Requires `admin_password_env`. |
+| `admin_password_env`      | string  | When `admin_username` is set | `"GATEWAY_ADMIN_PASSWORD"` | Name of the environment variable containing the browser admin password. The value must be 12–256 characters without surrounding whitespace or control characters. |
 
 ## Providers, routes, and model access
 
@@ -210,13 +212,16 @@ service manager/container configuration.
 | Variable                                                             | Required?                          | Default value | Constraints                                                                                                                                    |
 | -------------------------------------------------------------------- | ---------------------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | Variable named by `admin_token_env` (normally `GATEWAY_ADMIN_TOKEN`) | Yes                                | None          | Credential must contain 32–256 characters with no spaces, tabs, carriage returns, or line breaks.                                              |
+| Variable named by `admin_password_env` (normally `GATEWAY_ADMIN_PASSWORD`) | When `admin_username` is set | None | Browser login password, 12–256 characters without surrounding whitespace or control characters. |
 | Each variable named by `providers.<name>.api_key_env`                | Yes, for every configured provider | None          | Must be nonempty, including for providers not referenced by a route. `OPENROUTER_API_KEY` is an example variable name, not a built-in default. |
 
-Credentials are required for normal startup and `-check`. The admin credential is
-captured at startup, so changing it requires a restart. Provider keys are read
-from the process environment when making upstream requests. Provider configuration
-and credential variable names are snapshotted for admitted requests; keep referenced
-credentials available until pending accounting is resolved.
+Credentials are required for normal startup and `-check`. The admin token and
+browser admin password are captured at startup, so changing either requires a
+restart. Browser sessions issued by `POST /admin/v1/session` last 12 hours and are
+stored in process memory; restarting the gateway invalidates them. Provider keys
+are read from the process environment when making upstream requests. Provider
+configuration and credential variable names are snapshotted for admitted requests;
+keep referenced credentials available until pending accounting is resolved.
 
 ## Command-line options
 

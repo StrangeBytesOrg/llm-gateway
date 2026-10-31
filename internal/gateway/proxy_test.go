@@ -36,8 +36,33 @@ func fixtureWithServer(t *testing.T, up *httptest.Server) (*Gateway, string, str
 	t.Helper()
 	admin := strings.Repeat("a", 40)
 	t.Setenv("TEST_ADMIN_TOKEN", admin)
+	t.Setenv("TEST_ADMIN_PASSWORD", "correct horse battery staple")
 	t.Setenv("TEST_PROVIDER_KEY", "provider-secret")
-	c := Config{ModelAccessGroups: testAccessConfig().ModelAccessGroups, DefaultModelAccessGroup: "free", Listen: ":42080", AdminListen: "127.0.0.1:42081", Database: filepath.Join(t.TempDir(), "gateway.db"), BackupDirectory: t.TempDir(), BackupIntervalSeconds: 86400, AdminTokenEnv: "TEST_ADMIN_TOKEN", Providers: map[string]Provider{"upstream": {BaseURL: up.URL, APIKeyEnv: "TEST_PROVIDER_KEY", Accounting: "openrouter"}}, Models: map[string]Route{"alias": testRoute()}, MaxBodyBytes: 1 << 20, MaxResponseBytes: 1 << 20, MaxOutputTokens: 100, GlobalConcurrency: 100, UserConcurrency: 4, UserRequestsPerMinute: 60, RequestTimeoutSeconds: 5, HeaderTimeoutSeconds: 2, StreamIdleSeconds: 1, ShutdownSeconds: 2, ReconcileMaxAttempts: 2}
+	c := Config{
+		ModelAccessGroups:       testAccessConfig().ModelAccessGroups,
+		DefaultModelAccessGroup: "free",
+		Listen:                  ":42080",
+		AdminListen:             "127.0.0.1:42081",
+		Database:                filepath.Join(t.TempDir(), "gateway.db"),
+		BackupDirectory:         t.TempDir(),
+		BackupIntervalSeconds:   86400,
+		AdminTokenEnv:           "TEST_ADMIN_TOKEN",
+		AdminUsername:           "admin",
+		AdminPasswordEnv:        "TEST_ADMIN_PASSWORD",
+		Providers:               map[string]Provider{"upstream": {BaseURL: up.URL, APIKeyEnv: "TEST_PROVIDER_KEY", Accounting: "openrouter"}},
+		Models:                  map[string]Route{"alias": testRoute()},
+		MaxBodyBytes:            1 << 20,
+		MaxResponseBytes:        1 << 20,
+		MaxOutputTokens:         100,
+		GlobalConcurrency:       100,
+		UserConcurrency:         4,
+		UserRequestsPerMinute:   60,
+		RequestTimeoutSeconds:   5,
+		HeaderTimeoutSeconds:    2,
+		StreamIdleSeconds:       1,
+		ShutdownSeconds:         2,
+		ReconcileMaxAttempts:    2,
+	}
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}

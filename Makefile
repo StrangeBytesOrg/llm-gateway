@@ -1,5 +1,13 @@
-.PHONY: build test race vet vuln check load
-build:
+.PHONY: build openapi ui ui-dev test race vet vuln check load
+openapi:
+	@tmp="$$(mktemp)"; \
+	go run ./cmd/gateway -export-admin-openapi > "$$tmp" || { rm -f "$$tmp"; exit 1; }; \
+	install -m 0644 "$$tmp" web/openapi.json; \
+	rm -f "$$tmp"
+	cd web && bun run openapi
+ui:
+	cd web && bun ci && bun run build
+build: ui
 	go build -trimpath -o bin/gateway ./cmd/gateway
 test:
 	go test ./...

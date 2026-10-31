@@ -503,7 +503,7 @@ type Summary struct {
 	Current    *PeriodUsage  `json:"current_period"`
 	Unresolved int           `json:"unresolved_requests"`
 	Pending    int           `json:"pending_requests"`
-	Periods    []PeriodUsage `json:"periods"`
+	Periods    []PeriodUsage `json:"periods" nullable:"false"`
 }
 
 func (s *Store) Summary(ctx context.Context, id string, now time.Time) (Summary, error) {

@@ -6,3 +6,6 @@
 *.db-wal
 *.out
 .env
+/web/node_modules/
+/web/dist/*
+!/web/dist/.gitkeep

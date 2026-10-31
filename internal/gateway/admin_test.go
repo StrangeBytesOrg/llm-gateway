@@ -20,7 +20,7 @@ func TestAdminGeneratedContract(t *testing.T) {
 	if err = json.Unmarshal(generated, &spec); err != nil {
 		t.Fatal(err)
 	}
-	if spec.OpenAPI != "3.1.0" || len(spec.Paths) != 17 {
+	if spec.OpenAPI != "3.1.0" || len(spec.Paths) != 20 {
 		t.Fatalf("unexpected contract: %s paths=%d", spec.OpenAPI, len(spec.Paths))
 	}
 	if _, exists := spec.Paths["/v1/chat/completions"]; exists {
@@ -52,6 +52,11 @@ func TestHumaValidationAndAdminWorkflow(t *testing.T) {
 		}
 		if w := call(h, "POST", path, "", ""); w.Code != 401 {
 			t.Fatalf("unprotected contract POST %s: %d", path, w.Code)
+		}
+	}
+	for _, path := range []string{"/admin/v1/unknown", "/openapi.json/", "/health/unknown"} {
+		if w := call(h, "GET", path, admin, ""); w.Code != 404 || !strings.Contains(w.Body.String(), "not_found") {
+			t.Fatalf("unknown admin path %s: %d %s", path, w.Code, w.Body)
 		}
 	}
 	for _, tc := range []struct{ method, path, body string }{

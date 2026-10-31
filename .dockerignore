@@ -8,3 +8,5 @@ config.json
 .env
 *.db*
 *.out
+web/node_modules
+web/dist

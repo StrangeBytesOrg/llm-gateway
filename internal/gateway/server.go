@@ -72,16 +72,19 @@ func (l *limiter) acquire(user string, c Config, now time.Time) (func(), string)
 }
 
 type Gateway struct {
-	Config    Config
-	Store     *Store
-	Client    *http.Client
-	Log       *slog.Logger
-	Metrics   Metrics
-	limits    limiter
-	adminHash [32]byte
-	closing   atomic.Bool
-	handlerMu sync.Mutex
-	handlers  sync.WaitGroup
+	Config            Config
+	Store             *Store
+	Client            *http.Client
+	Log               *slog.Logger
+	Metrics           Metrics
+	limits            limiter
+	adminHash         [32]byte
+	adminUsername     string
+	adminPasswordHash [32]byte
+	sessions          sessionStore
+	closing           atomic.Bool
+	handlerMu         sync.Mutex
+	handlers          sync.WaitGroup
 }
 
 func New(c Config, s *Store, log *slog.Logger) *Gateway {
@@ -94,7 +97,21 @@ func New(c Config, s *Store, log *slog.Logger) *Gateway {
 	transport.MaxConnsPerHost = c.GlobalConcurrency
 	transport.ResponseHeaderTimeout = seconds(c.HeaderTimeoutSeconds)
 	transport.IdleConnTimeout = 90 * time.Second
-	return &Gateway{Config: c, Store: s, Log: log, Client: &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, limits: limiter{users: map[string]*bucket{}}, adminHash: sha256.Sum256([]byte(os.Getenv(c.AdminTokenEnv)))}
+	adminPassword := ""
+	if c.AdminPasswordEnv != "" {
+		adminPassword = os.Getenv(c.AdminPasswordEnv)
+	}
+	return &Gateway{
+		Config:            c,
+		Store:             s,
+		Log:               log,
+		Client:            &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
+		limits:            limiter{users: map[string]*bucket{}},
+		adminHash:         sha256.Sum256([]byte(os.Getenv(c.AdminTokenEnv))),
+		adminUsername:     c.AdminUsername,
+		adminPasswordHash: sha256.Sum256([]byte(adminPassword)),
+		sessions:          sessionStore{sessions: map[[32]byte]adminSession{}},
+	}
 }
 
 func (g *Gateway) InferenceHandler() http.Handler {

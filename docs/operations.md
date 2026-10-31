@@ -2,7 +2,10 @@
 
 ## Deployment
 
-Build with `make build`, then run `bin/gateway -config /path/to/config.yaml`. The binary supports `-check` to validate configuration without touching the database, `-verify-backup FILE` to check backup integrity, and `-export-admin-openapi` to print the generated admin contract. The last two modes require neither credentials nor configuration.
+Build with `make build`, then run `bin/gateway -config /path/to/config.yaml`. `make build` compiles the embedded Vue admin UI first; the Docker image does the same in a Bun build stage.
+The binary supports `-check` to validate configuration without touching the database, `-verify-backup FILE` to check backup integrity, and `-export-admin-openapi` to print the generated admin contract. The last two modes require neither credentials nor configuration.
+
+The admin UI is served at `/` on the admin listener. Browser login is optional and uses `admin_username` plus the password in `admin_password_env`; the returned session token is valid for 12 hours and stored only in process memory. The long-lived admin token remains valid for automation and metrics scraping. If `admin_username` is omitted, the UI is served but login is disabled. Keep the admin listener on loopback or a private network.
 
 The service supports one active process per database. An advisory lock prevents another gateway process opening the same database. Use local persistent storage with working file locking and fsync; do not share the WAL database across network filesystems or hosts. Preserve the database, WAL, and shared-memory files together when managing a stopped instance. Never copy only a live `.db` file as a backup.
 
@@ -17,7 +20,7 @@ docker build -t llm-gateway .
 docker run --name llm-gateway --network host --read-only --tmpfs /tmp \
   --mount type=bind,src="$PWD/config.yaml",dst=/etc/gateway/config.yaml,readonly \
   --mount type=volume,src=llm-gateway-data,dst=/data \
-  --env GATEWAY_ADMIN_TOKEN --env OPENROUTER_API_KEY \
+  --env GATEWAY_ADMIN_TOKEN --env GATEWAY_ADMIN_PASSWORD --env OPENROUTER_API_KEY \
   llm-gateway
 ```
 

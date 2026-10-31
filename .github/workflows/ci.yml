@@ -23,14 +23,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Build admin UI
+        working-directory: web
+        run: bun ci && bun run build
+
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
 
+      - name: Check admin OpenAPI contract
+        run: |
+          set -euo pipefail
+          go run ./cmd/gateway -export-admin-openapi > /tmp/admin-openapi.json
+          diff -u web/openapi.json /tmp/admin-openapi.json
+          cd web
+          bun run openapi
+          cd ..
+          git diff --exit-code -- web/src/api/schema.d.ts
+
       - name: Check formatting
-        run: test -z "$(gofmt -l cmd internal)"
+        run: test -z "$(gofmt -l cmd internal web/*.go)"
 
       - run: go vet ./...
       - run: go test -race -cover ./...

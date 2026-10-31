@@ -1,6 +1,6 @@
 # LLM Gateway
 
-A Go gateway for internal inference access, virtual keys, recurring user budgets, and request cost accounting. Connects to OpenRouter and configurable OpenAI-compatible Chat Completions upstreams. State lives in local SQLite; run one gateway process per database on Linux. The admin API uses Huma over Go's standard router; inference streams use direct `net/http` handlers.
+A Go gateway for internal inference access, virtual keys, recurring user budgets, and request cost accounting. Connects to configurable OpenAI-compatible Chat Completions upstreams. State lives in local SQLite; run one gateway process per database on Linux. The admin API uses Huma over Go's standard router, and an embedded Vue admin UI is served by the same admin listener; inference streams use direct `net/http` handlers.
 
 ## Run locally
 
@@ -16,11 +16,35 @@ go run ./cmd/gateway -config config.yaml
 
 Configuration uses YAML, with defaults applied to omitted optional settings. See the [configuration reference](docs/configuration.md) for every setting, whether it is required, and its default. Unknown fields (except inside model `request_params` settings), duplicate keys, multiple documents, and files larger than 1 MiB are rejected. A [configuration schema](config.schema.json) is available for editor autocomplete and validation. Use `-check` to validate configuration, references, and credentials. Keep token pricing values quoted, such as `input_usd_per_million: "0.15"`.
 
-Inference listens on port 42080; administration binds to loopback port 42081. Put inference behind a TLS reverse proxy before exposing it. Both APIs use bearer authentication; only `/health/live` is public. Do not expose the admin listener to untrusted networks. Credentials are resolved from environment variables at startup/request time, never stored in SQLite. Cors is enabled by default on the inference API.
+Inference listens on port 42080; administration binds to loopback port 42081. Put inference behind a TLS reverse proxy before exposing it. Both APIs use bearer authentication. `/health/live`, the admin UI shell and its static assets, the login endpoint, and the read-only admin OpenAPI contract are public; every other admin route requires the admin token or a session token. Do not expose the admin listener to untrusted networks. Credentials are resolved from environment variables at startup/request time, never stored in SQLite. Cors is enabled by default on the inference API.
 
 Configure aliases in `models`; clients send the alias as `model`. Each alias maps to one provider model. Configuration changes require a restart. The example model is illustrative: confirm availability and any model-specific parameters with your provider before use. The gateway forwards Chat Completions fields, including tools and structured output, while controlling routing, upstream credentials, user identity, and maximum output tokens.
 Responses are rebuilt from an explicit field allowlist and identify the requested gateway model alias and a gateway completion ID. Provider costs and routing metadata remain internal. See the [response contract](docs/responses.md) for supported fields, reasoning, usage, and streaming behavior. Optional `models.<alias>.request_params` settings enforce upstream request fields such as reasoning and sampling parameters.
 OpenRouter provider preferences and plugins use the same `request_params` object. Configured top-level fields replace client values completely. See the [OpenRouter request parameters reference](docs/configuration.md#openrouter-request-parameters) for reserved fields and examples.
+
+## Admin UI
+
+The gateway serves an embedded Vue admin SPA at the root of the admin listener (default `http://127.0.0.1:42081/`). Build it before compiling the binary:
+
+```sh
+make ui
+go build ./cmd/gateway
+```
+
+`make build` does both. Frontend builds use Bun 1.4.x. The frontend source lives in `web/`, and `web/embed.go` embeds the Vite build into the gateway binary. The UI covers users, keys, request history, accounting resolution, the audit log, backups, and read-only configuration. It uses the admin API directly. For frontend development, run `make ui-dev`; set `ADMIN_PROXY` if the admin listener is not the default `http://127.0.0.1:42081`.
+
+The UI uses a typed client (`openapi-fetch`) with types generated from the admin OpenAPI contract. After changing Go admin handlers or types, run `make openapi` to refresh `web/openapi.json` and `web/src/api/schema.d.ts`. CI checks that both committed files match the current Go contract.
+
+Enable browser login by setting a username and a password environment variable:
+
+```yaml
+admin_username: admin
+admin_password_env: GATEWAY_ADMIN_PASSWORD
+```
+
+```sh
+export GATEWAY_ADMIN_PASSWORD='a long unique password'
+```
 
 ## Provision a user and key
 
@@ -118,7 +142,7 @@ The first release initializes the complete SQLite schema at version 1 using `001
 
 ## API documentation
 
-The generated admin OpenAPI contract describes user management, key expiration/revocation, usage, request history, manual cost resolution, audit history, backups, readiness, and metrics. Huma generates it from registered handlers and Go types and serves the current specification at `/openapi.json` and `/openapi.yaml` on the admin listener. GET and HEAD requests to these two URLs require no authentication. Fetch the JSON specification with:
+The generated admin OpenAPI contract describes browser sessions, non-secret configuration, aggregate overview counts, user management, key expiration/revocation, usage, request history, manual cost resolution, audit history, backups, readiness, and metrics. Huma generates it from registered handlers and Go types and serves the current specification at `/openapi.json` and `/openapi.yaml` on the admin listener. GET and HEAD requests to these two URLs require no authentication. Fetch the JSON specification with:
 
 ```sh
 curl --fail --silent --show-error http://127.0.0.1:42081/openapi.json
@@ -126,7 +150,7 @@ curl --fail --silent --show-error http://127.0.0.1:42081/openapi.json
 
 Use `/openapi.yaml` instead for YAML. The running admin server also serves an interactive documentation UI at `http://127.0.0.1:42081/docs`. Browser access requires an authenticated local proxy or header-injection setup. Administrative validation errors use Huma's RFC 9457 problem details (`application/problem+json`); domain errors put their stable code in `detail`. Inference retains its [compatible error envelope and contract](docs/inference.openapi.yaml).
 
-List APIs accept `limit` (1–500, default 100) and `after`; follow `next_cursor` until empty. Treat cursors as opaque values. Usage summaries include the latest 100 periods; request history provides pagination across all retained requests. Filter request history with `/admin/v1/requests?user_id=your-internal-user-id` (URL-encode the query value).
+List APIs accept `limit` (1–500, default 100) and `after`; follow `next_cursor` until empty. Treat cursors as opaque values. Usage summaries include the latest 100 periods; request history provides pagination across all retained requests. Filter request history with `/admin/v1/requests?user_id=your-internal-user-id` (URL-encode the query value). The audit log defaults to ascending ID order; pass `order=desc` for newest events first.
 
 ## Subscription transitions
 

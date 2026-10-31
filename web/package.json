@@ -1,0 +1,35 @@
+{
+  "name": "llm-gateway-admin",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "openapi": "openapi-typescript openapi.json -o src/api/schema.d.ts",
+    "prebuild": "bun run openapi",
+    "build": "vue-tsc --noEmit && vite build",
+    "postbuild": "bun -e \"await Bun.write('dist/.gitkeep', '')\"",
+    "pretypecheck": "bun run openapi",
+    "typecheck": "vue-tsc --noEmit",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@lucide/vue": "^1.65.0",
+    "@pinia/colada": "^1.4.9",
+    "openapi-fetch": "^0.17.0",
+    "pinia": "^4.1.0",
+    "reka-ui": "^2.11.0",
+    "vue": "^3.5.44",
+    "vue-router": "^5.4.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/bun": "^1.4.4",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "openapi-typescript": "^7.13.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.5",
+    "vue-tsc": "^3.3.14"
+  }
+}
