@@ -65,7 +65,7 @@ curl --fail --silent --show-error -X POST \
   -d '{"alias":"your-key-alias"}'
 ```
 
-Save `secret` from this response; it cannot be retrieved later. Supply it as the API key in your existing compatible client and set its base URL to `http://localhost:42080/v1`.
+Save `secret` from this response; it cannot be retrieved later. Supply it as the API key in your existing compatible client and set its base URL to `http://localhost:42080/v1`. The inference API also accepts `GET /models` and `POST /chat/completions` as convenience aliases for `/v1/models` and `/v1/chat/completions`.
 
 Users have a single immutable `id`. Supply it during creation to use your own IDs, or omit it to let the gateway generate a `usr_` ID. Lookup, updates, usage, key management, and stored relationships all use that same ID. User routes use `/admin/v1/users/{user_id}`; URL-encode user IDs and key aliases individually as path segments. Supplied IDs are matched exactly and case-sensitively, must be nonblank and at most 256 bytes, and cannot be changed after creation.
 

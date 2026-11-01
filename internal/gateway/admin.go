@@ -17,7 +17,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 )
 
-const adminAPIVersion = "0.2.0"
+const adminAPIVersion = "0.2.1"
 
 // Huma stays at the administrative HTTP boundary. Inference is handled directly
 // by net/http; storage and accounting have no framework dependency.

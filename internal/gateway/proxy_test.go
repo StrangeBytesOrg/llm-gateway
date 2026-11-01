@@ -96,36 +96,40 @@ func onlyRequest(t *testing.T, g *Gateway) Request {
 }
 
 func TestChatForwardingAndSettlement(t *testing.T) {
-	g, key, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer provider-secret" {
-			t.Error("wrong upstream credential")
-		}
-		var body map[string]json.RawMessage
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Error(err)
-		}
-		if string(body["model"]) != `"model"` || string(body["max_tokens"]) != "100" || string(body["response_format"]) != `{"type":"json_object"}` {
-			t.Errorf("forwarded body: %s", body)
-		}
-		if bytes.Contains(body["user"], []byte("spoof")) {
-			t.Error("trusted client user field")
-		}
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"id":"gen-one","model":"model","choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"prompt_tokens":10,"completion_tokens":2,"cost":0.025}}`)
-	})
-	w := call(g.InferenceHandler(), "POST", "/v1/chat/completions", key, `{"model":"alias","messages":[{"role":"user","content":"hello"}],"user":"spoof","response_format":{"type":"json_object"}}`)
-	if w.Code != 200 {
-		t.Fatalf("%d %s", w.Code, w.Body)
-	}
-	if w.Header().Get("X-Request-ID") == "" {
-		t.Fatal("no request ID")
-	}
-	r := onlyRequest(t, g)
-	if r.Accounting != "settled" || r.CostUSD == nil || *r.CostUSD != "0.025000000" || r.GenerationID != "gen-one" {
-		t.Fatalf("accounting: %+v", r)
-	}
-	if w := call(g.InferenceHandler(), "GET", "/v1/models", key, ""); w.Code != 200 || !strings.Contains(w.Body.String(), "alias") {
-		t.Fatalf("model list: %d %s", w.Code, w.Body)
+	for _, prefix := range []string{"/v1", ""} {
+		t.Run(prefix, func(t *testing.T) {
+			g, key, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") != "Bearer provider-secret" {
+					t.Error("wrong upstream credential")
+				}
+				var body map[string]json.RawMessage
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+				}
+				if string(body["model"]) != `"model"` || string(body["max_tokens"]) != "100" || string(body["response_format"]) != `{"type":"json_object"}` {
+					t.Errorf("forwarded body: %s", body)
+				}
+				if bytes.Contains(body["user"], []byte("spoof")) {
+					t.Error("trusted client user field")
+				}
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprint(w, `{"id":"gen-one","model":"model","choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"prompt_tokens":10,"completion_tokens":2,"cost":0.025}}`)
+			})
+			w := call(g.InferenceHandler(), "POST", prefix+"/chat/completions", key, `{"model":"alias","messages":[{"role":"user","content":"hello"}],"user":"spoof","response_format":{"type":"json_object"}}`)
+			if w.Code != 200 {
+				t.Fatalf("%d %s", w.Code, w.Body)
+			}
+			if w.Header().Get("X-Request-ID") == "" {
+				t.Fatal("no request ID")
+			}
+			r := onlyRequest(t, g)
+			if r.Accounting != "settled" || r.CostUSD == nil || *r.CostUSD != "0.025000000" || r.GenerationID != "gen-one" {
+				t.Fatalf("accounting: %+v", r)
+			}
+			if w := call(g.InferenceHandler(), "GET", prefix+"/models", key, ""); w.Code != 200 || !strings.Contains(w.Body.String(), "alias") {
+				t.Fatalf("model list: %d %s", w.Code, w.Body)
+			}
+		})
 	}
 }
 

@@ -10,7 +10,7 @@ import (
 func TestInferenceCORS(t *testing.T) {
 	g, key, admin := fixture(t, func(http.ResponseWriter, *http.Request) {})
 	h := g.InferenceHandler()
-	for _, path := range []string{"/v1/models", "/v1/chat/completions"} {
+	for _, path := range []string{"/v1/models", "/v1/chat/completions", "/models", "/chat/completions"} {
 		r := httptest.NewRequest(http.MethodOptions, path, nil)
 		r.Header.Set("Origin", "https://app.example")
 		r.Header.Set("Access-Control-Request-Method", "POST")
@@ -21,13 +21,15 @@ func TestInferenceCORS(t *testing.T) {
 			t.Fatalf("preflight %s: status %d headers %v", path, w.Code, w.Header())
 		}
 	}
-	for _, tc := range []struct {
-		key    string
-		status int
-	}{{key, 200}, {"invalid", 401}} {
-		w := call(h, "GET", "/v1/models", tc.key, "")
-		if w.Code != tc.status || w.Header().Get("Access-Control-Allow-Origin") != "*" {
-			t.Fatalf("models: status %d headers %v", w.Code, w.Header())
+	for _, path := range []string{"/v1/models", "/models"} {
+		for _, tc := range []struct {
+			key    string
+			status int
+		}{{key, 200}, {"invalid", 401}} {
+			w := call(h, "GET", path, tc.key, "")
+			if w.Code != tc.status || w.Header().Get("Access-Control-Allow-Origin") != "*" {
+				t.Fatalf("models: status %d headers %v", w.Code, w.Header())
+			}
 		}
 	}
 	w := call(g.AdminHandler(), "GET", "/admin/v1/users", admin, "")

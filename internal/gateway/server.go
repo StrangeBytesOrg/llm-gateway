@@ -118,7 +118,9 @@ func (g *Gateway) InferenceHandler() http.Handler {
 	m := http.NewServeMux()
 	m.HandleFunc("GET /health/live", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
 	m.HandleFunc("POST /v1/chat/completions", g.chat)
+	m.HandleFunc("POST /chat/completions", g.chat)
 	m.HandleFunc("GET /v1/models", g.models)
+	m.HandleFunc("GET /models", g.models)
 	m.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { apiError(w, 404, "not_found") })
 	return g.recover(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
