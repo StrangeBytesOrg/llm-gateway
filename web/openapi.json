@@ -239,6 +239,10 @@
       "CreateUserInputBody": {
         "additionalProperties": false,
         "properties": {
+          "alias": {
+            "maxLength": 256,
+            "type": "string"
+          },
           "anchor": {
             "description": "Renewal anchor, normalized to UTC and truncated to whole seconds. Change the schedule through budget-transitions.",
             "format": "date-time",
@@ -860,6 +864,10 @@
       "UpdateUserInputBody": {
         "additionalProperties": false,
         "properties": {
+          "alias": {
+            "maxLength": 256,
+            "type": "string"
+          },
           "budget_usd": {
             "description": "Update the current recurring limit in place, preserving schedule and spending. No policy revision or audit record is created.",
             "maxLength": 100,
@@ -882,6 +890,9 @@
       "User": {
         "additionalProperties": false,
         "properties": {
+          "alias": {
+            "type": "string"
+          },
           "anchor_unix": {
             "format": "int64",
             "type": "integer"
@@ -914,6 +925,7 @@
           }
         },
         "required": [
+          "alias",
           "model_access_group",
           "id",
           "enabled",
@@ -938,7 +950,7 @@
   "info": {
     "description": "Internal provisioning and auditable USD cost accounting. Users have a single immutable id, optionally supplied at creation or generated when omitted. User-specific routes and user_id fields use that same ID. Key routes identify keys by alias, scoped to the user. Amounts are decimal strings; *_unix timestamps are Unix seconds. Authentication accepts the long-lived admin token or a short-lived session token from POST /admin/v1/session. Validation errors use RFC 9457 problem details.",
     "title": "LLM Gateway Admin API",
-    "version": "0.2.1"
+    "version": "0.2.2"
   },
   "openapi": "3.1.0",
   "paths": {

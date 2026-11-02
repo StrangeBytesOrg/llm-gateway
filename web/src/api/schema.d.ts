@@ -443,6 +443,7 @@ export interface components {
             username: string;
         };
         CreateUserInputBody: {
+            alias?: string;
             /**
              * Format: date-time
              * @description Renewal anchor, normalized to UTC and truncated to whole seconds. Change the schedule through budget-transitions.
@@ -648,6 +649,7 @@ export interface components {
             user: components["schemas"]["User"];
         };
         UpdateUserInputBody: {
+            alias?: string;
             /** @description Update the current recurring limit in place, preserving schedule and spending. No policy revision or audit record is created. */
             budget_usd?: string;
             enabled?: boolean;
@@ -655,6 +657,7 @@ export interface components {
             model_access_group?: string;
         };
         User: {
+            alias: string;
             /** Format: int64 */
             anchor_unix: number;
             budget_allowance_id: string;

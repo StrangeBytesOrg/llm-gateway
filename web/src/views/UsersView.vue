@@ -47,6 +47,7 @@ const createOpen = ref(false)
 
 const form = reactive({
   id: '',
+  alias: '',
   budget_usd: '10.00',
   cadence: 'monthly' as 'weekly' | 'monthly',
   anchor: toDateTimeLocal(Math.floor(Date.now() / 1000)),
@@ -59,7 +60,7 @@ const filtered = computed(() => {
     if (statusFilter.value === 'enabled' && !user.enabled) return false
     if (statusFilter.value === 'disabled' && user.enabled) return false
     if (!needle) return true
-    return user.id.toLowerCase().includes(needle) || user.model_access_group.toLowerCase().includes(needle)
+    return user.id.toLowerCase().includes(needle) || user.alias.toLowerCase().includes(needle) || user.model_access_group.toLowerCase().includes(needle)
   })
 })
 
@@ -72,6 +73,7 @@ function openUser(user: User): void {
 function openCreate(): void {
   resetCreate()
   form.id = ''
+  form.alias = ''
   form.budget_usd = '10.00'
   form.cadence = 'monthly'
   form.anchor = toDateTimeLocal(Math.floor(Date.now() / 1000))
@@ -88,6 +90,7 @@ async function submitCreate(): Promise<void> {
   resetCreate()
   try {
     await createUserAsync({
+      alias: form.alias,
       budget_usd: form.budget_usd,
       cadence: form.cadence,
       anchor: fromDateTimeLocal(form.anchor),
@@ -124,7 +127,7 @@ async function submitCreate(): Promise<void> {
       <div class="flex flex-col gap-3 border-b border-zinc-200 p-4 sm:flex-row sm:items-center sm:justify-between dark:border-zinc-800">
         <div class="relative max-w-sm flex-1">
           <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-          <input v-model="search" class="input pl-9" placeholder="Filter loaded users by ID or group…" />
+          <input v-model="search" class="input pl-9" placeholder="Filter loaded users by alias, ID or group…" />
         </div>
         <div class="flex items-center gap-2">
           <select v-model="statusFilter" class="input w-auto min-w-32">
@@ -164,8 +167,8 @@ async function submitCreate(): Promise<void> {
               @keydown.enter="openUser(user)"
             >
               <td class="table-cell">
-                <p class="mono font-medium text-zinc-800 dark:text-zinc-200">{{ user.id }}</p>
-                <p class="mt-0.5 text-[11px] text-zinc-400 dark:text-zinc-500">{{ user.budget_policy_id }}</p>
+                <p class="mono font-medium text-zinc-800 dark:text-zinc-200">{{ user.alias || user.id }}</p>
+                <p class="mt-0.5 text-[11px] text-zinc-400 dark:text-zinc-500">{{ user.id }}</p>
               </td>
               <td class="table-cell">
                 <span class="inline-flex rounded-md bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
@@ -214,6 +217,10 @@ async function submitCreate(): Promise<void> {
       size="lg"
     >
       <form id="create-user-form" class="space-y-4" @submit.prevent="submitCreate">
+        <div>
+          <label class="label" for="user-alias">Alias (optional)</label>
+          <input id="user-alias" v-model="form.alias" class="input" maxlength="256" />
+        </div>
         <div class="grid gap-4 sm:grid-cols-2">
           <div>
             <label class="label" for="user-id">User ID <span class="normal-case text-zinc-400">(optional)</span></label>

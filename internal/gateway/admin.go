@@ -17,7 +17,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 )
 
-const adminAPIVersion = "0.2.1"
+const adminAPIVersion = "0.2.2"
 
 // Huma stays at the administrative HTTP boundary. Inference is handled directly
 // by net/http; storage and accounting have no framework dependency.
@@ -80,6 +80,7 @@ func (optionalGroup) Schema(huma.Registry) *huma.Schema {
 
 type CreateUserInput struct {
 	Body struct {
+		Alias            string        `json:"alias,omitempty" maxLength:"256"`
 		ModelAccessGroup optionalGroup `json:"model_access_group,omitempty" doc:"Model access group. Omit to store the configured creation default."`
 		ID               *string       `json:"id,omitempty" minLength:"1" maxLength:"256" doc:"Optional immutable user ID. Omit to generate one; supplied IDs are used exactly. Duplicate IDs return 409."`
 		BudgetUSD        string        `json:"budget_usd" minLength:"1" maxLength:"100" doc:"Nonnegative USD, rounded to nano-USD. Zero blocks inference."`
@@ -90,6 +91,7 @@ type CreateUserInput struct {
 type UpdateUserInput struct {
 	UserInput
 	Body struct {
+		Alias            *string       `json:"alias,omitempty" maxLength:"256"`
 		ModelAccessGroup optionalGroup `json:"model_access_group,omitempty" doc:"Replaces the user group immediately for all keys. Omit to preserve the current assignment."`
 		Enabled          *bool         `json:"enabled,omitempty"`
 		BudgetUSD        *string       `json:"budget_usd,omitempty" minLength:"1" maxLength:"100" doc:"Update the current recurring limit in place, preserving schedule and spending. No policy revision or audit record is created."`
@@ -329,7 +331,7 @@ func (g *Gateway) createUser(ctx context.Context, in *CreateUserInput) (*APIOutp
 	if _, ok := g.Config.ModelAccessGroups[group]; !ok {
 		return nil, huma.NewError(400, "invalid_model_access_group")
 	}
-	u, err := g.Store.CreateUser(ctx, id, amount, in.Body.Cadence, a, group)
+	u, err := g.Store.CreateUser(ctx, id, amount, in.Body.Cadence, a, group, in.Body.Alias)
 	if err != nil {
 		return nil, g.adminError(err)
 	}
@@ -367,10 +369,10 @@ func (g *Gateway) updateUser(ctx context.Context, in *UpdateUserInput) (*APIOutp
 		}
 		group = &value
 	}
-	if in.Body.Enabled == nil && budget == nil && group == nil {
+	if in.Body.Enabled == nil && budget == nil && group == nil && in.Body.Alias == nil {
 		return nil, huma.NewError(400, "empty_update")
 	}
-	u, err := g.Store.UpdateUser(ctx, in.UserID, in.Body.Enabled, budget, group)
+	u, err := g.Store.UpdateUser(ctx, in.UserID, in.Body.Enabled, budget, group, in.Body.Alias)
 	if err != nil {
 		return nil, g.adminError(err)
 	}

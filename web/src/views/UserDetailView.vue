@@ -73,7 +73,7 @@ const error = computed(() => {
 const activeTab = ref('keys')
 
 const editOpen = ref(false)
-const editForm = reactive({ enabled: true, budget_usd: '0.00', model_access_group: '' })
+const editForm = reactive({ alias: '', enabled: true, budget_usd: '0.00', model_access_group: '' })
 const {
   isLoading: saving,
   error: updateError,
@@ -128,6 +128,7 @@ function load(): void {
 function openEdit(): void {
   if (!user.value) return
   resetUpdate()
+  editForm.alias = user.value.alias
   editForm.enabled = user.value.enabled
   editForm.budget_usd = trimUSD(user.value.budget_usd)
   editForm.model_access_group = user.value.model_access_group
@@ -141,6 +142,7 @@ async function saveEdit(): Promise<void> {
     await updateUserAsync({
       id: user.value.id,
       body: {
+        alias: editForm.alias,
         enabled: editForm.enabled,
         budget_usd: editForm.budget_usd,
         ...(editForm.model_access_group ? { model_access_group: editForm.model_access_group } : {}),
@@ -232,7 +234,7 @@ async function revokeKey(): Promise<void> {
     </div>
 
     <template v-else-if="user">
-      <PageHeader :title="user.id" description="Recurring budget, model access, keys, and usage for this user." eyebrow="User detail">
+      <PageHeader :title="user.alias || user.id" description="Recurring budget, model access, keys, and usage for this user." eyebrow="User detail">
         <template #actions>
           <StatusBadge :status="user.enabled ? 'enabled' : 'disabled'" />
           <button class="btn btn-secondary" :disabled="loading" @click="load">
@@ -462,7 +464,9 @@ async function revokeKey(): Promise<void> {
         </div>
         <div class="grid gap-4 sm:grid-cols-2">
           <div>
-            <label class="label" for="edit-budget">Budget (USD)</label>
+            <label class="label" for="edit-alias">Alias</label>
+            <input id="edit-alias" v-model="editForm.alias" class="input" maxlength="256" />
+                        <label class="label" for="edit-budget">Budget (USD)</label>
             <input id="edit-budget" v-model="editForm.budget_usd" class="input" inputmode="decimal" required />
           </div>
           <div>
