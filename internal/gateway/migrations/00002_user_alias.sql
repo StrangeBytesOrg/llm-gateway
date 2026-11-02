@@ -1,1 +1,2 @@
+-- +goose Up
 ALTER TABLE users ADD COLUMN alias TEXT NOT NULL DEFAULT '';

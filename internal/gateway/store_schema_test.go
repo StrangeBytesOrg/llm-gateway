@@ -9,6 +9,19 @@ import (
 	"time"
 )
 
+func dbVersion(t *testing.T, db *sql.DB) int64 {
+	t.Helper()
+	provider, err := newMigrationProvider(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, err := provider.GetDBVersion(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return version
+}
+
 func TestInitialSchemaAndReopen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "gateway.db")
 	s, err := OpenStore(path)
@@ -16,9 +29,8 @@ func TestInitialSchemaAndReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
-	var version int
-	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != schemaVersion {
-		t.Fatalf("initial schema version: %d %v", version, err)
+	if version := dbVersion(t, s.db); version != 2 {
+		t.Fatalf("initial schema version: %d", version)
 	}
 	ctx := context.Background()
 	u := keyUser(t, s, "hub-reopen")
@@ -51,8 +63,8 @@ func TestInitialSchemaAndReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	if err := reopened.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != schemaVersion {
-		t.Fatalf("reopened schema version: %d %v", version, err)
+	if version := dbVersion(t, reopened.db); version != 2 {
+		t.Fatalf("reopened schema version: %d", version)
 	}
 	if got, err := reopened.User(ctx, u.ID); err != nil || got.ID != u.ID {
 		t.Fatalf("reopening lost user: %+v %v", got, err)
@@ -95,12 +107,12 @@ func TestInitialSchemaFailureIsAtomic(t *testing.T) {
 		s.Close()
 		t.Fatal("initialization unexpectedly succeeded over a conflicting table")
 	}
-	var version, createdTables int
-	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 0 {
-		t.Fatalf("failed initialization changed version: %d %v", version, err)
-	}
-	if err := db.QueryRow("SELECT count(*) FROM sqlite_schema WHERE type='table' AND name<>'audit'").Scan(&createdTables); err != nil || createdTables != 0 {
+	var createdTables, applied int
+	if err := db.QueryRow("SELECT count(*) FROM sqlite_schema WHERE type='table' AND name NOT IN ('audit','goose_db_version') AND name NOT LIKE 'sqlite_%'").Scan(&createdTables); err != nil || createdTables != 0 {
 		t.Fatalf("partial schema survived rollback: %d %v", createdTables, err)
+	}
+	if err := db.QueryRow("SELECT count(*) FROM goose_db_version WHERE version_id <> 0").Scan(&applied); err != nil || applied != 0 {
+		t.Fatalf("failed initialization recorded an applied migration: %d %v", applied, err)
 	}
 	var marker string
 	if err := db.QueryRow("SELECT marker FROM audit").Scan(&marker); err != nil || marker != "preserve-me" {
@@ -115,7 +127,14 @@ func TestRejectNewerSchemaWithoutChangingData(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if _, err := db.Exec("PRAGMA user_version=3; CREATE TABLE marker(value TEXT); INSERT INTO marker VALUES('preserve-me')"); err != nil {
+	provider, err := newMigrationProvider(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = provider.GetDBVersion(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec("INSERT INTO goose_db_version(version_id, is_applied) VALUES(3, 1); CREATE TABLE marker(value TEXT); INSERT INTO marker VALUES('preserve-me')"); err != nil {
 		t.Fatal(err)
 	}
 	if s, err := OpenStore(path); err == nil {
@@ -127,7 +146,7 @@ func TestRejectNewerSchemaWithoutChangingData(t *testing.T) {
 		t.Fatalf("rejected database data changed: %q %v", value, err)
 	}
 	var version int
-	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 3 {
+	if err := db.QueryRow("SELECT max(version_id) FROM goose_db_version").Scan(&version); err != nil || version != 3 {
 		t.Fatalf("rejected database version changed: %d %v", version, err)
 	}
 	var name string
@@ -142,14 +161,14 @@ func TestUpgradeVersionOnePreservesUsers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	schema, err := migrations.ReadFile("migrations/001_init.sql")
+	provider, err := newMigrationProvider(db)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Exec(string(schema)); err != nil {
+	if _, err = provider.UpTo(context.Background(), 1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Exec(`INSERT INTO users(id, enabled, current_policy_id, created, model_access_group) VALUES('existing', 1, 'policy', 123, 'default'); PRAGMA user_version=1`); err != nil {
+	if _, err = db.Exec(`INSERT INTO users(id, enabled, current_policy_id, created, model_access_group) VALUES('existing', 1, 'policy', 123, 'default')`); err != nil {
 		t.Fatal(err)
 	}
 	if err = db.Close(); err != nil {
@@ -161,11 +180,10 @@ func TestUpgradeVersionOnePreservesUsers(t *testing.T) {
 	}
 	defer s.Close()
 	var id, alias string
-	var version int
 	if err = s.db.QueryRow("SELECT id, alias FROM users WHERE id='existing'").Scan(&id, &alias); err != nil || id != "existing" || alias != "" {
 		t.Fatalf("upgraded user: id=%q alias=%q err=%v", id, alias, err)
 	}
-	if err = s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != schemaVersion {
-		t.Fatalf("upgraded version: %d %v", version, err)
+	if version := dbVersion(t, s.db); version != 2 {
+		t.Fatalf("upgraded version: %d", version)
 	}
 }

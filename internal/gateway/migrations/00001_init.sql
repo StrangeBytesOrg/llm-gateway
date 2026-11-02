@@ -1,3 +1,4 @@
+-- +goose Up
 CREATE TABLE
 	users (
 		id TEXT NOT NULL PRIMARY KEY,
@@ -17,18 +18,22 @@ CREATE TABLE
 		UNIQUE (user_id, id)
 	);
 
+-- +goose StatementBegin
 CREATE TRIGGER immutable_budget_allowance_update BEFORE
 UPDATE ON budget_allowances BEGIN
 SELECT
 	RAISE (ABORT, 'immutable budget allowance');
 
 END;
+-- +goose StatementEnd
 
+-- +goose StatementBegin
 CREATE TRIGGER immutable_budget_allowance_delete BEFORE DELETE ON budget_allowances BEGIN
 SELECT
 	RAISE (ABORT, 'immutable budget allowance');
 
 END;
+-- +goose StatementEnd
 
 CREATE TABLE
 	budget_policies (
@@ -42,6 +47,7 @@ CREATE TABLE
 		FOREIGN KEY (user_id, allowance_id) REFERENCES budget_allowances (user_id, id)
 	);
 
+-- +goose StatementBegin
 CREATE TRIGGER immutable_budget_policy_identity BEFORE
 UPDATE OF id,
 user_id,
@@ -51,12 +57,15 @@ SELECT
 	RAISE (ABORT, 'immutable budget policy identity');
 
 END;
+-- +goose StatementEnd
 
+-- +goose StatementBegin
 CREATE TRIGGER immutable_budget_policy_delete BEFORE DELETE ON budget_policies BEGIN
 SELECT
 	RAISE (ABORT, 'immutable budget policy');
 
 END;
+-- +goose StatementEnd
 
 CREATE TABLE
 	budget_transitions (
@@ -69,18 +78,22 @@ CREATE TABLE
 		FOREIGN KEY (user_id, policy_id) REFERENCES budget_policies (user_id, id)
 	);
 
+-- +goose StatementBegin
 CREATE TRIGGER immutable_budget_transition_update BEFORE
 UPDATE ON budget_transitions BEGIN
 SELECT
 	RAISE (ABORT, 'immutable budget transition');
 
 END;
+-- +goose StatementEnd
 
+-- +goose StatementBegin
 CREATE TRIGGER immutable_budget_transition_delete BEFORE DELETE ON budget_transitions BEGIN
 SELECT
 	RAISE (ABORT, 'immutable budget transition');
 
 END;
+-- +goose StatementEnd
 
 CREATE TABLE
 	virtual_keys (
@@ -119,6 +132,7 @@ CREATE TABLE
 
 CREATE INDEX periods_user_history ON periods (user_id, start DESC, id DESC);
 
+-- +goose StatementBegin
 CREATE TRIGGER immutable_period_identity BEFORE
 UPDATE OF id,
 user_id,
@@ -129,6 +143,7 @@ SELECT
 	RAISE (ABORT, 'immutable period identity');
 
 END;
+-- +goose StatementEnd
 
 CREATE TABLE
 	requests (
@@ -160,6 +175,7 @@ CREATE TABLE
 		FOREIGN KEY (user_id, policy_id, allowance_id) REFERENCES budget_policies (user_id, id, allowance_id)
 	);
 
+-- +goose StatementBegin
 CREATE TRIGGER immutable_request_period BEFORE
 UPDATE OF user_id,
 period_id,
@@ -170,6 +186,7 @@ SELECT
 	RAISE (ABORT, 'immutable request period');
 
 END;
+-- +goose StatementEnd
 
 CREATE INDEX requests_user_history ON requests (user_id, created DESC, id DESC);
 

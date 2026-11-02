@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"net/url"
 	"os"
@@ -17,14 +18,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pressly/goose/v3"
 	"golang.org/x/sys/unix"
 	_ "modernc.org/sqlite"
 )
 
 //go:embed migrations/*.sql
 var migrations embed.FS
-
-const schemaVersion = 2
 
 var (
 	ErrModelNotAllowed    = errors.New("model_not_allowed")
@@ -101,44 +101,31 @@ func (s *Store) Close() error {
 	return e
 }
 func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
+
+func newMigrationProvider(db *sql.DB) (*goose.Provider, error) {
+	fsys, err := fs.Sub(migrations, "migrations")
+	if err != nil {
+		return nil, err
+	}
+	return goose.NewProvider(goose.DialectSQLite3, db, fsys)
+}
+
 func (s *Store) migrate(ctx context.Context) error {
-	var version int
-	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
-		return err
-	}
-	if version > schemaVersion {
-		return errors.New("database schema is newer than this binary")
-	}
-	if version == schemaVersion {
-		return nil
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	provider, err := newMigrationProvider(s.db)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
-	for _, migration := range []struct {
-		version int
-		path    string
-	}{
-		{1, "migrations/001_init.sql"},
-		{2, "migrations/002_user_alias.sql"},
-	} {
-		if version >= migration.version {
-			continue
-		}
-		schema, err := migrations.ReadFile(migration.path)
-		if err != nil {
-			return err
-		}
-		if _, err = tx.ExecContext(ctx, string(schema)); err != nil {
-			return err
-		}
-	}
-	if _, err = tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version=%d", schemaVersion)); err != nil {
+	sources := provider.ListSources()
+	latest := sources[len(sources)-1].Version
+	current, err := provider.GetDBVersion(ctx)
+	if err != nil {
 		return err
 	}
-	return tx.Commit()
+	if current > latest {
+		return errors.New("database schema is newer than this binary")
+	}
+	_, err = provider.Up(ctx)
+	return err
 }
 
 func ID(prefix string) string {

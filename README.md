@@ -138,8 +138,6 @@ Rotation accepts an optional JSON body such as `{"expires":"2026-12-01T00:00:00Z
 
 `POST /admin/v1/users/{user_id}/keys` also accepts `{"alias":"your-key-alias"}` with optional `expires`, returning `409` for an alias already used by that user, including a revoked alias. Omitting the alias generates one. `DELETE /admin/v1/keys/{key}` revokes a specific credential version by its internal ID; revoking an old version does not revoke its rotated replacement. To revoke the current credential regardless of rotation, use the key-alias endpoint.
 
-The first release initializes the complete SQLite schema at version 1 using `001_init.sql`. Databases from earlier unreleased development schemas are not upgrade targets; use a fresh development database when switching to this baseline.
-
 ## API documentation
 
 The generated admin OpenAPI contract describes browser sessions, non-secret configuration, aggregate overview counts, user management, key expiration/revocation, usage, request history, manual cost resolution, audit history, backups, readiness, and metrics. Huma generates it from registered handlers and Go types and serves the current specification at `/openapi.json` and `/openapi.yaml` on the admin listener. GET and HEAD requests to these two URLs require no authentication. Fetch the JSON specification with:
@@ -205,6 +203,10 @@ Generic connections use a configured HTTPS base URL and bearer API key; no separ
 Compatible providers can use `accounting: reported` when they return a trustworthy `usage.cost` in USD. `accounting: token_rates` requires `input_usd_per_million`, `output_usd_per_million`, and `pricing_version` on each model route. That mode only supports flat text token pricing; nonzero cache/audio/other detail dimensions remain unresolved instead of being silently mispriced. Rates are snapshotted per request. Test a provider's streaming, token and cost semantics before enabling it. Cloudflare has not yet passed that conformance testing.
 
 The gateway sends no automatic inference retries and implements no route fallback. A retry after an ambiguous failure could create another billable generation. Unknown request parameters are forwarded; clients remain responsible for provider/model support. Native provider APIs, Responses, embeddings, image/audio generation endpoints, user login, and a dashboard are outside v1.
+
+## Database
+
+Database migrations are managed with [Goose](https://github.com/pressly/goose). The gateway embeds the SQL files in `internal/gateway/migrations` and applies pending migrations on startup. Each migration uses a sequential numeric filename, such as `00003_add_widgets.sql`, and starts with a `-- +goose Up` annotation. Add a new migration file for every schema change and do not modify migrations that have already been applied. Databases created by the previous `PRAGMA user_version` migration system are not upgrade targets; use a fresh development database when switching to Goose.
 
 ## Checks
 
