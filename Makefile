@@ -1,4 +1,7 @@
-.PHONY: build openapi ui ui-dev test race vet vuln check load
+.DEFAULT_GOAL := build
+.PHONY: build generate openapi ui ui-dev test race vet vuln check load
+generate:
+	sqlc generate
 openapi:
 	@tmp="$$(mktemp)"; \
 	go run ./cmd/gateway -export-admin-openapi > "$$tmp" || { rm -f "$$tmp"; exit 1; }; \

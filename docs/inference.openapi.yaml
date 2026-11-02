@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LLM Gateway Inference API
-  version: 0.3.0
+  version: 0.3.1
   description: >-
     GET /models and POST /chat/completions are convenience aliases for /v1/models and /v1/chat/completions.
     Inference uses virtual keys. The separate Huma-generated administrative API
