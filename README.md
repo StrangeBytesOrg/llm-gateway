@@ -4,7 +4,7 @@ A Go gateway for internal inference access, virtual keys, recurring user budgets
 
 ## Run locally
 
-Requires Go 1.27.3 or later.
+Requires Go 1.27.4 or later.
 
 ```sh
 cp config.example.yaml config.yaml
