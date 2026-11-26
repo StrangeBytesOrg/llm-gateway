@@ -1,4 +1,4 @@
-FROM oven/bun:1.4.4 AS ui
+FROM oven/bun:1.4.5 AS ui
 WORKDIR /src/web
 COPY web/package.json web/bun.lock ./
 RUN bun install --frozen-lockfile
