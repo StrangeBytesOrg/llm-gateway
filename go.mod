@@ -3,11 +3,11 @@ module github.com/StrangeBytesOrg/llm-gateway
 go 1.27.4
 
 require (
-	github.com/danielgtaylor/huma/v2 v2.40.0
+	github.com/danielgtaylor/huma/v2 v2.41.0
 	github.com/pressly/goose/v3 v3.30.1
 	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/sys v0.50.0
-	modernc.org/sqlite v1.62.0
+	modernc.org/sqlite v1.63.0
 )
 
 require (
